@@ -1,0 +1,3 @@
+# Python requirements for NorthStar Engines.
+# Keep this in sync with actual usage; add libs as engines mature.
+

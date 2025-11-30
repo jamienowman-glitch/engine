@@ -1,0 +1,122 @@
+{
+  "combos": [
+    {
+      "combo_id": "AUDIO.DATASET.BASIC_GRIME_V1",
+      "label": "Basic grime dataset builder",
+      "description": "Pipeline from raw freestyle uploads to LoRA-ready JSONL dataset.",
+      "engines": [
+        "AUDIO.INGEST.LOCAL_V1",
+        "AUDIO.SEGMENT.FFMPEG_V1",
+        "AUDIO.ASR.WHISPER_V1",
+        "TEXT.NORMALISE.SLANG_V1",
+        "AUDIO.BEAT.FEATURES_V1",
+        "ALIGN.AUDIO_TEXT.BARS_V1",
+        "TAG.FLOW.AUTO_V1",
+        "DATASET.PACK.JSONL_V1"
+      ],
+      "tags": ["audio", "dataset", "bot-better-know"]
+    },
+    {
+      "combo_id": "TRAIN.LORA.BASIC_GRIME_V1",
+      "label": "Basic grime LoRA trainer",
+      "description": "Train or record a LoRA adapter using the dataset produced by AUDIO.DATASET.BASIC_GRIME_V1.",
+      "engines": [
+        "DATASET.PACK.JSONL_V1",
+        "TRAIN.LORA.LOCAL_V1"
+      ],
+      "tags": ["training", "bot-better-know"]
+    },
+    {
+      "combo_id": "AUDIO.ASR.CLEAN_PIPELINE_V1",
+      "id": "AUDIO.ASR.CLEAN_PIPELINE_V1",
+      "kind": "combo",
+      "label": "Clean ASR pipeline",
+      "description": "Ingest local media, clean audio, segment, run Whisper ASR, and restore punctuation/casing.",
+      "engines": [
+        "AUDIO.INGEST.LOCAL_FILE_V1",
+        "AUDIO.PREPROCESS.BASIC_CLEAN_V1",
+        "AUDIO.SEGMENT.FFMPEG_V1",
+        "AUDIO.ASR.WHISPER_V1",
+        "TEXT.CLEAN.ASR_PUNCT_CASE_V1"
+      ],
+      "steps": [
+        {"engine_id": "AUDIO.INGEST.LOCAL_FILE_V1"},
+        {"engine_id": "AUDIO.PREPROCESS.BASIC_CLEAN_V1"},
+        {"engine_id": "AUDIO.SEGMENT.FFMPEG_V1"},
+        {"engine_id": "AUDIO.ASR.WHISPER_V1"},
+        {"engine_id": "TEXT.CLEAN.ASR_PUNCT_CASE_V1"}
+      ],
+      "tags": ["audio", "asr"]
+    },
+    {
+      "combo_id": "VIDEO.ASR.PLUS_FRAMES_V1",
+      "id": "VIDEO.ASR.PLUS_FRAMES_V1",
+      "kind": "combo",
+      "label": "Video ASR with frame grabs",
+      "description": "Process video uploads to produce cleaned transcripts and representative frames; for editors, set frame grabber to manual mode (timeline-driven timestamps).",
+      "engines": [
+        "AUDIO.INGEST.LOCAL_FILE_V1",
+        "VIDEO.INGEST.FRAME_GRAB_V1",
+        "AUDIO.SEGMENT.FFMPEG_V1",
+        "AUDIO.ASR.WHISPER_V1",
+        "TEXT.CLEAN.ASR_PUNCT_CASE_V1"
+      ],
+      "steps": [
+        {"engine_id": "AUDIO.INGEST.LOCAL_FILE_V1"},
+        {"engine_id": "VIDEO.INGEST.FRAME_GRAB_V1"},
+        {"engine_id": "AUDIO.SEGMENT.FFMPEG_V1"},
+        {"engine_id": "AUDIO.ASR.WHISPER_V1"},
+        {"engine_id": "TEXT.CLEAN.ASR_PUNCT_CASE_V1"}
+      ],
+      "tags": ["video", "asr", "multimodal", "manual-frame"]
+    },
+    {
+      "combo_id": "AUDIO.DATASET.GRIME_CLEAN_V1",
+      "id": "AUDIO.DATASET.GRIME_CLEAN_V1",
+      "kind": "combo",
+      "label": "Clean grime dataset builder",
+      "description": "Remote ingest through cleaning, ASR, slang normalization, alignment, tagging, and JSONL packing.",
+      "engines": [
+        "AUDIO.INGEST.REMOTE_PULL_V1",
+        "AUDIO.PREPROCESS.BASIC_CLEAN_V1",
+        "AUDIO.SEGMENT.FFMPEG_V1",
+        "AUDIO.ASR.WHISPER_V1",
+        "TEXT.CLEAN.ASR_PUNCT_CASE_V1",
+        "TEXT.NORMALISE.SLANG_V1",
+        "AUDIO.BEAT.FEATURES_V1",
+        "ALIGN.AUDIO_TEXT.BARS_V1",
+        "TAG.FLOW.AUTO_V1",
+        "DATASET.PACK.JSONL_V1"
+      ],
+      "steps": [
+        {"engine_id": "AUDIO.INGEST.REMOTE_PULL_V1"},
+        {"engine_id": "AUDIO.PREPROCESS.BASIC_CLEAN_V1"},
+        {"engine_id": "AUDIO.SEGMENT.FFMPEG_V1"},
+        {"engine_id": "AUDIO.ASR.WHISPER_V1"},
+        {"engine_id": "TEXT.CLEAN.ASR_PUNCT_CASE_V1"},
+        {"engine_id": "TEXT.NORMALISE.SLANG_V1"},
+        {"engine_id": "AUDIO.BEAT.FEATURES_V1"},
+        {"engine_id": "ALIGN.AUDIO_TEXT.BARS_V1"},
+        {"engine_id": "TAG.FLOW.AUTO_V1"},
+        {"engine_id": "DATASET.PACK.JSONL_V1"}
+      ],
+      "tags": ["audio", "dataset", "grime"]
+    },
+    {
+      "combo_id": "TRAIN.LORA.GRIME_CLEAN_V1",
+      "id": "TRAIN.LORA.GRIME_CLEAN_V1",
+      "kind": "combo",
+      "label": "Grime LoRA trainer (clean path)",
+      "description": "Train a LoRA adapter on the cleaned grime dataset using PEFT/HF.",
+      "engines": [
+        "DATASET.PACK.JSONL_V1",
+        "TRAIN.LORA.PEFT_HF_V1"
+      ],
+      "steps": [
+        {"engine_id": "DATASET.PACK.JSONL_V1"},
+        {"engine_id": "TRAIN.LORA.PEFT_HF_V1"}
+      ],
+      "tags": ["training", "grime"]
+    }
+  ]
+}

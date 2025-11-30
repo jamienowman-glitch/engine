@@ -1,0 +1,109 @@
+BOSSMAN CHECKLIST · NorthStar Engines
+=====================================
+
+Owner: Jay / The Captain / Bossman
+Scope: This repo (NorthStar Engines: audio, video, 3D, analytics)
+
+Purpose:
+- This is MY ritual, not the agents’.
+- When I open this repo, I run through this once.
+- It keeps me and the agents (Gem, Max, Claude, Ossie) aligned.
+
+A. DAILY OPEN-REPO RITUAL
+-------------------------
+
+1. Ground in the Rules
+   - Open:
+     - docs/constitution/00_CONSTITUTION.md
+     - docs/constitution/01_FACTORY_RULES.md
+   - If anything in the repo feels off vs these, fix docs or plans before new work.
+
+2. Find the Map
+   - Open docs/MANIFESTO.md
+   - Check it still points to:
+     - README.md
+     - requirements.txt
+     - docs/constitution/*
+     - docs/20_ENGINES_PLAN.md
+     - docs/99_DEV_LOG.md
+     - docs/logs/ENGINES_LOG.md
+
+3. Check the Logs
+   - Open docs/99_DEV_LOG.md (repo-wide) and docs/logs/ENGINES_LOG.md (per-engine).
+   - If I just did work and didn’t log it, add an entry before starting new stuff.
+
+4. Confirm the Active Task
+   - Open docs/20_ENGINES_PLAN.md
+   - Find:
+     - Current Active Engine Task ID (e.g. E-03)
+     - Current phase for that task.
+   - Say out loud:
+     - “Today I’m working on: <TASK_ID> – <short description>.”
+
+5. Bring Agents Back Online (in my head)
+   - Gem = Architect / Planner (plans only).
+   - Max = Implementer / Worker (code, wiring, concrete docs).
+   - Claude = Team Blue / QA (checks work vs plan and rules).
+   - Ossie = Styling / OSS helper.
+   - Control Tower ChatGPT = strategic planning chat, NOT repo-connected.
+
+6. Choose ONE Phase
+   - From the Active Task, pick a single phase.
+   - Note it somewhere:
+     - “FOCUS: <TASK_ID> / <PHASE>”
+   - Don’t spawn new tasks in my head until this phase is done and logged.
+
+7. End-of-Session Ritual
+   - Before closing:
+     - Plan file updated? (phase marked Done; task moved if fully complete)
+     - docs/logs/ENGINES_LOG.md updated?
+     - docs/99_DEV_LOG.md updated for any big decisions?
+     - If QA needed, prepare a short “QA this task” note for Claude next time.
+
+B. ROLE CHEAT-SHEET
+-------------------
+
+1. Gem (Architect / Planner)
+   - Owns plans and structure.
+   - Writes and maintains docs like:
+     - docs/20_ENGINES_PLAN.md
+     - Any engine-specific plan docs we add later.
+   - Breaks work into phases with:
+     - Steps (Max / Implementer)
+     - Logging & Status (Max)
+   - Never writes production code.
+
+2. Max (Implementer / Worker)
+   - Reads Constitution, Factory Rules, Roles & Models, BOSSMAN.txt.
+   - Reads the Active Task section in docs/20_ENGINES_PLAN.md.
+   - Implements code according to the plan.
+   - For each completed phase:
+     - Updates docs/logs/ENGINES_LOG.md
+     - Marks the phase Done in the plan.
+   - When a task is fully complete:
+     - Moves the task from Active → Completed in docs/20_ENGINES_PLAN.md.
+
+3. Claude (Team Blue / QA)
+   - Reads Constitution, Factory Rules, Roles & Models, plans, logs.
+   - Checks implementation vs plan vs rules.
+   - Adds QA stamp under each completed task:
+     - QA: Claude – PASS (YYYY-MM-DD – short notes)
+     - or
+     - QA: Claude – FAIL (reason, required fixes)
+
+4. Ossie (Styling / OSS)
+   - Helps with styling, mechanical refactors, small engine utilities.
+   - Follows plans; does not change governance or business logic.
+
+5. Control Tower ChatGPT (this style of chat)
+   - Helps me think and design.
+   - Helps me write prompts for Gem, Max, Claude, Ossie.
+   - Keeps everything aligned with this BOSSMAN.txt and the Constitution.
+
+C. IF I FEEL LOST
+-----------------
+
+1. Stop.
+2. Re-open BOSSMAN.txt.
+3. Re-run the 7-step ritual quickly.
+4. Spin up a Control Tower chat and paste the current Active Task section from docs/20_ENGINES_PLAN.md.
