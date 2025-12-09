@@ -1,0 +1,10 @@
+{
+  "plan_id": "PLAN-023",
+  "type": "app",
+  "id": "app-placeholder",
+  "surface": "web-chat",
+  "federations": ["federation-placeholder"],
+  "agents": ["chat-orchestrator", "temperature-agent", "guardrails-agents"],
+  "nexus_spaces": ["data", "state", "research", "strategy_lock", "ceo_signals"],
+  "events": ["chat_message", "guardrail_decision", "temperature_update", "generic_event"]
+}

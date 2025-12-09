@@ -1,0 +1,153 @@
+"""Vector Explorer service: query corpus/vector backend and return scenes."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional
+
+from engines.dataset.events.schemas import DatasetEvent
+from engines.logging.events.engine import run as log_dataset_event
+from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
+from engines.nexus.vector_explorer.repository import FirestoreVectorCorpusRepository, VectorCorpusRepository
+from engines.nexus.vector_explorer.scene_builder import build_scene
+from engines.nexus.vector_explorer.schemas import (
+    QueryMode,
+    VectorExplorerItem,
+    VectorExplorerQuery,
+    VectorExplorerResult,
+)
+from engines.nexus.vector_explorer.vector_store import ExplorerVectorStore, VertexExplorerVectorStore, VectorStoreConfigError
+from engines.scene_engine.core.types import Scene
+
+
+@dataclass
+class VectorExplorerDeps:
+    repository: VectorCorpusRepository
+    vector_store: ExplorerVectorStore
+    embedder: EmbeddingAdapter
+    event_logger: Optional[callable] = None
+
+
+class VectorExplorerService:
+    def __init__(
+        self,
+        repository: Optional[VectorCorpusRepository] = None,
+        vector_store: Optional[ExplorerVectorStore] = None,
+        embedder: Optional[EmbeddingAdapter] = None,
+        event_logger: Optional[callable] = None,
+    ) -> None:
+        self._repo = repository or FirestoreVectorCorpusRepository()
+        self._vector_store = vector_store or VertexExplorerVectorStore()
+        self._embedder = embedder or VertexEmbeddingAdapter()
+        self._event_logger = event_logger or _dataset_event_logger
+
+    def query_items(self, query: VectorExplorerQuery) -> VectorExplorerResult:
+        items: List[VectorExplorerItem]
+        if query.query_mode == QueryMode.all:
+            items = list(
+                self._repo.list_filtered(
+                    tenant_id=query.tenant_id,
+                    env=query.env,
+                    space=query.space,
+                    tags=query.tags,
+                    metadata_filters=query.metadata_filters,
+                    limit=query.limit,
+                )
+            )
+        elif query.query_mode == QueryMode.similar_to_id:
+            if not query.anchor_id:
+                raise ValueError("anchor_id is required for similar_to_id")
+            items = self._hydrate_similar_by_id(query, query.anchor_id)
+        elif query.query_mode == QueryMode.similar_to_text:
+            if not query.query_text:
+                raise ValueError("query_text is required for similar_to_text")
+            items = self._hydrate_similar_by_text(query, query.query_text)
+        else:  # pragma: no cover - Enum guards
+            items = []
+
+        self._log_event(
+            DatasetEvent(
+                tenantId=query.tenant_id,
+                env=query.env,
+                surface="vector_explorer",
+                agentId="vector_explorer",
+                input={
+                    "query_mode": query.query_mode.value,
+                    "space": query.space,
+                    "tags": query.tags,
+                    "anchor_id": query.anchor_id,
+                    "trace_id": query.trace_id,
+                },
+                output={"count": len(items)},
+                metadata={"kind": "vector_explorer.query"},
+            )
+        )
+        return VectorExplorerResult(items=items, tenant_id=query.tenant_id, env=query.env, trace_id=query.trace_id)
+
+    def build_scene_from_query(self, query: VectorExplorerQuery) -> Scene:
+        result = self.query_items(query)
+        scene = build_scene(result.items)
+        self._log_event(
+            DatasetEvent(
+                tenantId=query.tenant_id,
+                env=query.env,
+                surface="vector_explorer",
+                agentId="vector_explorer",
+                input={"trace_id": query.trace_id, "item_ids": [i.id for i in result.items]},
+                output={"scene_id": scene.sceneId, "node_count": len(scene.nodes)},
+                metadata={"kind": "vector_explorer.scene_composed"},
+            )
+        )
+        return scene
+
+    def _hydrate_similar_by_text(self, query: VectorExplorerQuery, text: str) -> List[VectorExplorerItem]:
+        try:
+            embed = self._embedder.embed_text(text)
+            hits = self._vector_store.query(
+                vector=embed.vector,
+                tenant_id=query.tenant_id,
+                env=query.env,
+                space=query.space,
+                top_k=query.limit,
+            )
+        except VectorStoreConfigError as exc:
+            raise ValueError(str(exc))
+        items: List[VectorExplorerItem] = []
+        for hit in hits:
+            item = self._repo.get(hit.id)
+            if not item:
+                continue
+            item.similarity_score = hit.score
+            items.append(item)
+        return items
+
+    def _hydrate_similar_by_id(self, query: VectorExplorerQuery, anchor_id: str) -> List[VectorExplorerItem]:
+        try:
+            hits = self._vector_store.query_by_datapoint_id(
+                anchor_id=anchor_id,
+                tenant_id=query.tenant_id,
+                env=query.env,
+                space=query.space,
+                top_k=query.limit,
+            )
+        except VectorStoreConfigError as exc:
+            raise ValueError(str(exc))
+        items: List[VectorExplorerItem] = []
+        for hit in hits:
+            item = self._repo.get(hit.id)
+            if not item:
+                continue
+            item.similarity_score = hit.score
+            items.append(item)
+        return items
+
+    def _log_event(self, event: DatasetEvent) -> None:
+        if not self._event_logger:
+            return
+        try:
+            self._event_logger(event)
+        except Exception:
+            return
+
+
+def _dataset_event_logger(event: DatasetEvent) -> None:
+    log_dataset_event(event)

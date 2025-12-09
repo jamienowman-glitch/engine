@@ -1,0 +1,6 @@
+{
+  "base_model": "meta-llama/Meta-Llama-3-8B-Instruct",
+  "train_jsonl": "engines/bot-better-know/data/work_local/dataset/train.jsonl",
+  "val_jsonl": "engines/bot-better-know/data/work_local/dataset/val.jsonl",
+  "output_dir": "engines/bot-better-know/data/work_local/model"
+}

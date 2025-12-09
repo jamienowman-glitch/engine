@@ -117,6 +117,42 @@
         {"engine_id": "TRAIN.LORA.PEFT_HF_V1"}
       ],
       "tags": ["training", "grime"]
+    },
+    {
+      "combo_id": "SCENE.BUILD.WALL_V1",
+      "id": "SCENE.BUILD.WALL_V1",
+      "kind": "combo",
+      "label": "Scene build wall",
+      "description": "Normalise grid/boxes, map to world, and render wall layout.",
+      "engines": [
+        "SCENE.GRID.NORMALISE_V1",
+        "SCENE.GRID.MAP_TO_WORLD_V1",
+        "SCENE.RECIPE.WALL_V1"
+      ],
+      "steps": [
+        {"engine_id": "SCENE.GRID.NORMALISE_V1"},
+        {"engine_id": "SCENE.GRID.MAP_TO_WORLD_V1"},
+        {"engine_id": "SCENE.RECIPE.WALL_V1"}
+      ],
+      "tags": ["scene", "layout"]
+    },
+    {
+      "combo_id": "SCENE.BUILD.VECTOR_EXPLORER_V1",
+      "id": "SCENE.BUILD.VECTOR_EXPLORER_V1",
+      "kind": "combo",
+      "label": "Scene build vector explorer",
+      "description": "Normalise grid/boxes, map to world, and render vector explorer layout.",
+      "engines": [
+        "SCENE.GRID.NORMALISE_V1",
+        "SCENE.GRID.MAP_TO_WORLD_V1",
+        "SCENE.RECIPE.VECTOR_EXPLORER_V1"
+      ],
+      "steps": [
+        {"engine_id": "SCENE.GRID.NORMALISE_V1"},
+        {"engine_id": "SCENE.GRID.MAP_TO_WORLD_V1"},
+        {"engine_id": "SCENE.RECIPE.VECTOR_EXPLORER_V1"}
+      ],
+      "tags": ["scene", "layout"]
     }
   ]
 }

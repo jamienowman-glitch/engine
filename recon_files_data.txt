@@ -1,0 +1,5 @@
+./engines/bot-better-know/data/uploads/.DS_Store
+./apps/bbk-local-ui/node_modules/caniuse-lite/data/agents.js
+./apps/bbk-local-ui/node_modules/caniuse-lite/data/features.js
+./apps/bbk-local-ui/node_modules/caniuse-lite/data/browserVersions.js
+./apps/bbk-local-ui/node_modules/caniuse-lite/data/browsers.js

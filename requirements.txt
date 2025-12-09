@@ -1,3 +1,11 @@
 # Python requirements for NorthStar Engines.
 # Keep this in sync with actual usage; add libs as engines mature.
-
+pydantic>=1.10,<2.0
+fastapi>=0.111.0
+uvicorn>=0.30.0
+google-cloud-firestore>=2.16.0
+google-cloud-storage>=2.14.0
+librosa>=0.10.1
+faster-whisper>=1.0.0
+torch>=2.3.0
+torchaudio>=2.3.0

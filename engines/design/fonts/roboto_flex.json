@@ -1,0 +1,13 @@
+{
+  "font_id": "roboto_flex",
+  "display_name": "Roboto Flex",
+  "css_family_name": "\"Roboto Flex\", system-ui, -apple-system, sans-serif",
+  "tracking_min_design": -200,
+  "tracking_max_design": 200,
+  "tracking_default_design": 0,
+  "primary_file_path": "fonts/roboto-flex/RobotoFlex-VariableFont.ttf",
+  "presets": {
+    "regular": {"opsz": 14, "wght": 400, "GRAD": 0, "wdth": 100, "slnt": 0, "XOPQ": 96, "YOPQ": 79, "XTRA": 468, "YTUC": 712, "YTLC": 522, "YTAS": 750, "YTDE": -203, "YTFI": 738},
+    "extrablack_italic": {"opsz": 14, "wght": 900, "GRAD": 0, "wdth": 100, "slnt": -10, "XOPQ": 96, "YOPQ": 79, "XTRA": 468, "YTUC": 712, "YTLC": 522, "YTAS": 750, "YTDE": -203, "YTFI": 738}
+  }
+}

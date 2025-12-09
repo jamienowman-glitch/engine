@@ -1,0 +1,72 @@
+"""Media ingest and listing endpoints for dev/prod wiring (PLAN-026)."""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException
+
+from engines.config import runtime_config
+from engines.dataset.events.schemas import DatasetEvent
+from engines.logging.events.engine import run as log_event
+from engines.nexus.backends import get_backend
+from engines.nexus.schemas import NexusDocument, NexusKind
+from engines.storage.gcs_client import GcsClient
+
+router = APIRouter()
+
+
+def _tenant(tenant_id: Optional[str]) -> str:
+    return tenant_id or runtime_config.get_tenant_id() or "t_unknown"
+
+
+@router.post("/media/upload")
+async def upload_media(
+    file: UploadFile = File(...),
+    tenant_id: str = Form(None),
+    tags: Optional[str] = Form(None),
+):
+    tenant = _tenant(tenant_id)
+    tag_list = [t for t in (tags.split(",") if tags else []) if t]
+
+    try:
+        content = await file.read()
+    except Exception as exc:  # pragma: no cover - narrow failure
+        raise HTTPException(status_code=400, detail=f"failed to read upload: {exc}")
+
+    gcs = GcsClient()
+    asset_id = uuid.uuid4().hex
+    path = f"{asset_id}/{file.filename}"
+    gcs_uri = gcs.upload_raw_media(tenant, path, content)
+
+    backend = get_backend()
+    doc = NexusDocument(id=asset_id, text=gcs_uri)
+    backend.write_snippet(NexusKind.data, doc, tags=["media"] + tag_list)
+
+    event = DatasetEvent(
+        tenantId=tenant,
+        env=runtime_config.get_env() or "dev",
+        surface="media",
+        agentId="media-upload",
+        input={"filename": file.filename, "tags": tag_list},
+        output={"gcs_uri": gcs_uri},
+        metadata={"kind": "media.upload", "asset_id": asset_id},
+        timestamp=datetime.now(timezone.utc),
+    )
+    log_event(event)
+
+    return {"asset_id": asset_id, "gcs_uri": gcs_uri, "tags": tag_list}
+
+
+@router.get("/media/stack")
+def list_media(tenant_id: str | None = None, limit: int = 20):
+    tenant = _tenant(tenant_id)
+    backend = get_backend()
+    # For now, retrieve by tags; in future use dedicated media collection.
+    docs = backend.query_by_tags(NexusKind.data, tags=["media"], limit=limit)
+    items = [
+        {"asset_id": doc.id, "text": doc.text, "tenant_id": tenant}
+        for doc in docs
+    ]
+    return {"items": items}

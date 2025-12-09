@@ -1,0 +1,41 @@
+# Cloud Run manifest for chat + media service (dev)
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: northstar-engines-chat
+  namespace: northstar-os-dev
+spec:
+  template:
+    spec:
+      serviceAccountName: northstar-dev-engines@northstar-os-dev.iam.gserviceaccount.com
+      containers:
+        - image: gcr.io/northstar-os-dev/northstar-engines:latest
+          env:
+            - name: TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: northstar-dev-tenant-0-id
+                  key: latest
+            - name: RAW_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: northstar-dev-raw-bucket
+                  key: latest
+            - name: DATASETS_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: northstar-dev-datasets-bucket
+                  key: latest
+            - name: NEXUS_BACKEND
+              valueFrom:
+                secretKeyRef:
+                  name: northstar-dev-nexus-backend
+                  key: latest
+            - name: GCP_PROJECT_ID
+              value: northstar-os-dev
+            - name: GCP_REGION
+              value: us-central1
+            - name: VERTEX_MODEL
+              value: gemini-1.5-flash-002
+          ports:
+            - containerPort: 8000

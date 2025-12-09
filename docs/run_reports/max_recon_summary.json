@@ -1,0 +1,18 @@
+{
+  "started_at": "2025-12-02T17:08:18Z",
+  "git_branch": "main",
+  "git_commit": "3a17a4e",
+  "train_files_found": 0,
+  "examples_segments": [],
+  "examples_asr": [],
+  "aligned_examples": [],
+  "requirements_snippet": "# Python requirements for NorthStar Engines.\n# Keep this in sync with actual usage; add libs as engines mature.\npydantic>=1.10,<2.0\nfastapi>=0.111.0\nuvicorn>=0.30.0\nlibrosa>=0.10.1\nfaster-whisper>=1.0.0\ntorch>=2.3.0\ntorchaudio>=2.3.0\n",
+  "py_import_status": {
+    "librosa": false,
+    "torch": false,
+    "faster_whisper": false,
+    "whisper": false,
+    "transformers": false
+  },
+  "pytest_error": "[Errno 2] No such file or directory: 'pytest'"
+}

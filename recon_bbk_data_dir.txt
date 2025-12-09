@@ -1,0 +1,12 @@
+total 0
+drwxr-xr-x@ 11 jaynowman  staff  352 Dec  1 07:08 .
+drwxr-xr-x@  8 jaynowman  staff  256 Dec  1 07:08 ..
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 aligned
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 asr
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 asr_norm
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 datasets
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 logs
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 model
+drwxr-xr-x@  2 jaynowman  staff   64 Dec  1 07:08 runs
+drwxr-xr-x@  2 jaynowman  staff   64 Nov 30 12:43 segments
+drwxr-xr-x@  3 jaynowman  staff   96 Nov 30 19:48 uploads

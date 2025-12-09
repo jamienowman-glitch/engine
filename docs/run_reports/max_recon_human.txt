@@ -1,0 +1,15 @@
+===== Human recon summary =====
+TIME: 2025-12-02T17:08:18Z
+BRANCH: main
+
+Quick counts:
+ - train.jsonl files:        0
+ - segments sample lines:        0
+ - asr sample lines:        0
+
+Top immediate action items (auto-detect):
+ - NO train.jsonl/val.jsonl found in repo -> might need dataset packing (06_pack_jsonl).
+ - NO audio segments present under data/segments -> run segmenter or confirm uploads.
+ - Key ML deps present in requirements; confirm GPU infra or define CPU fallbacks.
+
+Full JSON -> docs/run_reports/max_recon_summary.json

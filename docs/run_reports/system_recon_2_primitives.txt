@@ -1,0 +1,40 @@
+SYSTEM RECON · PRIMITIVES SCAN
+
+GDPR enforcement:
+- Not found in codebase (rg for GDPR/gdpr empty); no compliance hooks implemented.
+
+PII stripping:
+- Present as stub engine at engines/guardrails/pii_text (schemas, engine, tests). Stub only; no real detection/masking.
+
+Firestore Nexus write/read functions:
+- None implemented. Firestore only referenced in planning docs (docs/02_REPO_PLAN.md and docs/constitution/INFRA_GCP_DEV.md).
+
+GCS upload/download functions:
+- None implemented. GCS bucket strings exist only in docs and in default envs for bot-better-know ingest (engines/bot-better-know/pipeline/ingest.py:12-14) but no GCS SDK usage.
+
+Secret Manager loaders:
+- None implemented. Secret Manager appears only in docs/specs.
+
+Strategy Lock (KPI/Budget gating):
+- Stubbed engine at engines/guardrails/strategy_lock with schemas and tests. No gating logic; returns stub StrategyDecision.
+
+Temperature engine:
+- Stubbed at engines/control/temperature/engine.py returning neutral TemperatureState; no thresholds/logic.
+
+Lead-the-Dance intent router:
+- Not found (no matches for lead-the-dance/intent router terms).
+
+SEO4AIEO hooks (schema/meta/alt-text fields):
+- Not implemented; only SEO/UTM logging mentioned in docs (ENGINE-022).
+
+FUME hooks (GA4/Meta/Snap/TikTok):
+- Not implemented; no GA4/Meta/Snap/TikTok code references (only unrelated “Meta” strings from model names/node_modules).
+
+‘Area51’ storage for user uploads:
+- Not found (no matches for Area51/area51).
+
+Fed/Cluster/Agent structures:
+- Present only in planning/docs and placeholder cards (docs/plan/PLAN-023.md; docs/cards/plan-023/placeholder_app.json; placeholder_federation.json). No executable federation/cluster code.
+
+Surfaces or app registries references:
+- Present in docs and placeholder cards only; engines do not load surfaces/apps. Chat transport remains in-memory stub (engines/chat/service/http_transport.py, ws_transport.py, sse_transport.py).

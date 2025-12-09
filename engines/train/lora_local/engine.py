@@ -1,27 +1,21 @@
-"""Atomic engine: TRAIN.LORA.LOCAL_V1"""
+"""Atomic engine: TRAIN.LORA.LOCAL_V1 (stub metadata writer)."""
 from __future__ import annotations
-from dataclasses import dataclass
+
+import json
 from pathlib import Path
 from typing import Optional
 
-
-@dataclass
-class LoraLocalRequest:
-    train_jsonl: Path
-    val_jsonl: Path
-    output_dir: Path
-    base_model: str = "meta-llama/Meta-Llama-3-8B-Instruct"
+from engines.train.lora_local.types import LoraLocalInput, LoraLocalOutput
 
 
-@dataclass
-class LoraLocalResponse:
-    adapter_path: Optional[Path]
-    metadata_path: Path
-
-
-def run(request: LoraLocalRequest) -> LoraLocalResponse:
-    request.output_dir.mkdir(parents=True, exist_ok=True)
-    metadata_path = request.output_dir / "adapter_config.json"
-    # TODO: port stub metadata writer in Phase 3
-    metadata_path.touch()
-    return LoraLocalResponse(adapter_path=None, metadata_path=metadata_path)
+def run(config: LoraLocalInput) -> LoraLocalOutput:
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "base_model": config.base_model,
+        "train_path": str(config.train_jsonl),
+        "val_path": str(config.val_jsonl),
+        "notes": "stub adapter metadata",
+    }
+    metadata_path = config.output_dir / "adapter_config.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return LoraLocalOutput(adapter_path=None, metadata_path=metadata_path)

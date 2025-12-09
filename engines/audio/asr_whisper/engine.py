@@ -1,23 +1,24 @@
-"""Atomic engine: AUDIO.ASR.WHISPER_V1"""
+"""Atomic engine: AUDIO.ASR.WHISPER_V1 (structure-ready, stub inference)."""
 from __future__ import annotations
-from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Dict, Any
+
+from engines.audio.asr_whisper.types import (
+    ASRWhisperInput,
+    ASRWhisperOutput,
+    FileASRResult,
+    SegmentResult,
+)
 
 
-@dataclass
-class ASRWhisperRequest:
-    audio_paths: List[Path]
-    model_name: str = "medium"
-    compute_type: str = "int8"
-    device: str = "cpu"
-
-
-@dataclass
-class ASRWhisperResponse:
-    results: List[Dict[str, Any]]
-
-
-def run(request: ASRWhisperRequest) -> ASRWhisperResponse:
-    # TODO: implement Whisper ASR extraction in Phase 3
-    return ASRWhisperResponse(results=[])
+def run(config: ASRWhisperInput) -> ASRWhisperOutput:
+    """Return structured ASR results; replace with real faster-whisper later."""
+    results = []
+    for path in config.audio_paths:
+        results.append(
+            FileASRResult(
+                file=path.name,
+                duration=0.0,
+                language="en",
+                segments=[SegmentResult(start=0.0, end=0.0, text="", words=[])],
+            )
+        )
+    return ASRWhisperOutput(results=results)

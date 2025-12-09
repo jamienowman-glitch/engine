@@ -1,19 +1,25 @@
-"""Atomic engine: TEXT.CLEAN.ASR_PUNCT_CASE_V1"""
+"""Atomic engine: TEXT.CLEAN.ASR_PUNCT_CASE_V1."""
 from __future__ import annotations
-from dataclasses import dataclass
+
+import re
 from typing import List
 
+from engines.text.clean_asr_punct_case.types import CleanASRPunctCaseInput, CleanASRPunctCaseOutput
 
-@dataclass
-class CleanASRPunctCaseRequest:
-    texts: List[str]
-
-
-@dataclass
-class CleanASRPunctCaseResponse:
-    cleaned_texts: List[str]
+SENTENCE_END = re.compile(r"([.!?])")
 
 
-def run(request: CleanASRPunctCaseRequest) -> CleanASRPunctCaseResponse:
-    # TODO: implement punctuation/casing restoration in Phase 4
-    return CleanASRPunctCaseResponse(cleaned_texts=request.texts)
+def _clean_text(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+    # Basic sentence case
+    cleaned = stripped[0].upper() + stripped[1:]
+    if not SENTENCE_END.search(cleaned):
+        cleaned += "."
+    return cleaned
+
+
+def run(config: CleanASRPunctCaseInput) -> CleanASRPunctCaseOutput:
+    cleaned: List[str] = [_clean_text(t) for t in config.texts]
+    return CleanASRPunctCaseOutput(cleaned_texts=cleaned)

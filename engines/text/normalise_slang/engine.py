@@ -1,21 +1,46 @@
-"""Atomic engine: TEXT.NORMALISE.SLANG_V1"""
+"""Atomic engine: TEXT.NORMALISE.SLANG_V1."""
 from __future__ import annotations
-from dataclasses import dataclass
+
+from pathlib import Path
 from typing import Dict, Any, List
 
-
-@dataclass
-class NormaliseSlangRequest:
-    payloads: List[Dict[str, Any]]
-    lexicon_path: str | None = None
-    normalize_swears: bool = False
+from engines.text.normalise_slang.types import NormaliseSlangInput, NormaliseSlangOutput
 
 
-@dataclass
-class NormaliseSlangResponse:
-    normalized: List[Dict[str, Any]]
+def _load_lexicon(lex_path: Path) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    if lex_path.exists():
+        with lex_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                try:
+                    variant, canonical = line.rstrip("\n").split("\t", 1)
+                    mapping[variant.lower()] = canonical.strip().lower()
+                except ValueError:
+                    continue
+    return mapping
 
 
-def run(request: NormaliseSlangRequest) -> NormaliseSlangResponse:
-    # TODO: port slang normalization logic in Phase 3
-    return NormaliseSlangResponse(normalized=request.payloads)
+def _normalize_text(text: str, mapping: Dict[str, str]) -> str:
+    base = (text or "").lower()
+    for variant, canonical in mapping.items():
+        base = base.replace(variant, canonical)
+    return base.strip()
+
+
+def run(config: NormaliseSlangInput) -> NormaliseSlangOutput:
+    mapping: Dict[str, str] = {}
+    if config.lexicon_path:
+        mapping = _load_lexicon(config.lexicon_path)
+    normalized_payloads: List[Dict[str, Any]] = []
+    for payload in config.payloads:
+        data = payload.copy()
+        segments = data.get("segments") or []
+        for segment in segments:
+            text = segment.get("text", "") or ""
+            norm = _normalize_text(text, mapping)
+            segment["text_norm"] = norm
+            segment["norm_applied"] = norm != text.lower()
+        normalized_payloads.append(data)
+    return NormaliseSlangOutput(normalized=normalized_payloads)

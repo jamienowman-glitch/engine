@@ -1,0 +1,34 @@
+SYSTEM RECON · EXTERNAL REFERENCES
+
+Buckets / storage URIs:
+- gs://northstar-os-dev-northstar-raw (docs/constitution/INFRA_GCP_DEV.md; docs/02_REPO_PLAN.md)
+- gs://northstar-os-dev-northstar-datasets (docs/constitution/INFRA_GCP_DEV.md; docs/02_REPO_PLAN.md)
+- gs://aigentfm-inbox/sets (default INBOX_URI in engines/bot-better-know/pipeline/ingest.py)
+- gs://aigentfm-corpus (default CORPUS_URI in engines/bot-better-know/pipeline/ingest.py)
+- gs://aigentfm-models (default MODELS_URI in engines/bot-better-know/pipeline/ingest.py)
+
+Secrets / env keys explicitly named:
+- vertex/llm_api_key, vertex/llm_project_id, vertex/llm_region (docs/infra/PLAN-023_INFRA.md)
+- northstar-dev-tenant-0-id, northstar-dev-raw-bucket, northstar-dev-datasets-bucket, northstar-dev-nexus-backend (docs/constitution/INFRA_GCP_DEV.md; docs/02_REPO_PLAN.md)
+- NEXUS_DB_URL, NEXUS_DB_USER, NEXUS_DB_PASSWORD, AWS_REGION, GCP_PROJECT, LOG_SINK, S3_BUCKET_RAW, S3_BUCKET_DATASETS, S3_BUCKET_EXPORTS, PII_AGENT_ENDPOINT, GUARDRAILS_AGENT_ENDPOINT, TEMPERATURE_AGENT_ENDPOINT (docs/infra/PLAN-023_INFRA.md)
+- RAW_BUCKET, DATASETS_BUCKET, NEXUS_BACKEND, TENANT_ID (docs/02_REPO_PLAN.md section 5.1/5.2)
+
+External services mentioned (docs/spec level; not implemented in code):
+- Vertex AI / LLM endpoints (chat/orchestrator, helper agents)
+- Firestore (Nexus persistence)
+- GCS (raw/uploads, datasets)
+- Redis/Postgres/Firestore for chat state (docs/infra/PLAN-023_PIPELINE.md)
+- AWS S3 buckets (raw/datasets/exports placeholders in infra doc)
+- Cloud Run deployment target for scene/chat services (docs/ENGINES_DEPLOY_NOTES.md; docs/02_REPO_PLAN.md)
+
+External tools/libraries referenced in code requirements:
+- ffmpeg (audio segmentation/frames)
+- whisper/faster-whisper (ASR)
+- torch/torchaudio (training stubs)
+- librosa (beat features)
+- huggingface models (meta-llama/Meta-Llama-3-8B-Instruct in LoRA configs)
+
+Placeholders / cards / registries:
+- docs/cards/plan-023/placeholder_app.json
+- docs/cards/plan-023/placeholder_federation.json
+- engines/registry/engine_registry.json and engines/registry/os_v0_status.json (engine registry/state map)

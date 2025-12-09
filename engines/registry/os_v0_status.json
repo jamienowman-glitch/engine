@@ -1,0 +1,30 @@
+{
+  "plan_id": "PLAN-023",
+  "required_engines": [
+    "ENGINE-017",
+    "ENGINE-018",
+    "ENGINE-019",
+    "ENGINE-020",
+    "ENGINE-021",
+    "ENGINE-022"
+  ],
+  "not_required_engines": [
+    "ENGINE-001",
+    "ENGINE-002",
+    "ENGINE-003",
+    "ENGINE-004",
+    "ENGINE-005",
+    "ENGINE-006",
+    "ENGINE-007",
+    "ENGINE-008",
+    "ENGINE-009",
+    "ENGINE-010",
+    "ENGINE-011",
+    "ENGINE-012",
+    "ENGINE-013",
+    "ENGINE-014",
+    "ENGINE-015",
+    "ENGINE-016"
+  ],
+  "notes": "OS v0 focuses on core brain engines only; media and other engines are explicitly marked not_required for this slice."
+}

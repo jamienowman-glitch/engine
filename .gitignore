@@ -5,3 +5,10 @@ __pycache__/
 .idea/
 .vscode/
 .cache/
+node_modules/
+apps/bbk-local-ui/node_modules/
+*.log
+
+# Pyth
+.venv/
+__pycache__/
