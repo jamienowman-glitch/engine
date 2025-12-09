@@ -8,6 +8,7 @@ uvicorn engines.chat.service.server:app --host 0.0.0.0 --port 8000
 ```
 - The chat server aggregates the vector explorer routes: `/vector-explorer/ingest`, `/vector-explorer/scene`.
 - Bind `--host 0.0.0.0` to reach from LAN; choose any `--port` (8000 used here).
+- Dependencies: ensure `google-cloud-aiplatform` and `python-multipart` are installed (included in requirements.txt).
 
 ## Required env vars
 - `TENANT_ID` (e.g., `t_northstar-dev`)
@@ -17,8 +18,8 @@ uvicorn engines.chat.service.server:app --host 0.0.0.0 --port 8000
 - `GCP_PROJECT_ID` (Firestore/Vertex project, e.g., `northstar-os-dev`)
 - `GCP_REGION` (e.g., `us-central1`)
 - `VECTOR_PROJECT_ID` (optional override; defaults to `GCP_PROJECT_ID`)
-- `VECTOR_ENDPOINT_ID` (Vertex Matching Engine index endpoint ID)
-- `VECTOR_INDEX_ID` (deployed index ID / deployed_index_id)
+- `VECTOR_INDEX_ID` (Vertex Matching Engine **index** resource name or ID used for upserts)
+- `VECTOR_ENDPOINT_ID` (Vertex Matching Engine **endpoint** resource name or ID used for queries)
 - `TEXT_EMBED_MODEL` (Vertex text embedding model ID)
 - `IMAGE_EMBED_MODEL` (Vertex multimodal/image embedding model ID)
 
@@ -62,11 +63,26 @@ export DATASETS_BUCKET=gs://northstar-os-dev-northstar-datasets
 export GCP_PROJECT_ID=northstar-os-dev
 export GCP_REGION=us-central1
 export VECTOR_PROJECT_ID=$GCP_PROJECT_ID
-export VECTOR_ENDPOINT_ID=<INSERT_REAL_ENDPOINT_ID_HERE>
-export VECTOR_INDEX_ID=<INSERT_REAL_INDEX_ID_HERE>
+
+# RESOURCE IDs: You can use full resource names (projects/.../indexes/123) OR bare IDs (123).
+export VECTOR_INDEX_ID=<INSERT_REAL_INDEX_ID_HERE>          
+export VECTOR_ENDPOINT_ID=<INSERT_REAL_ENDPOINT_ID_HERE>    
+
 export TEXT_EMBED_MODEL=text-embedding-004
 export IMAGE_EMBED_MODEL=multimodalembedding@001
 ```
+
+## Common 400 errors (Vertex)
+- `Request contains an invalid argument`: 
+    - Often means `VECTOR_INDEX_ID` or `VECTOR_ENDPOINT_ID` don't point to valid resources in the project/region.
+    - Can also mean the Endpoint does not have the Index deployed to it. **Crucial**: The code requires `VECTOR_ENDPOINT_ID` to be an Endpoint that has a `deployed_index`.
+- `Vertex upsert failed`: 
+    - Check if `VECTOR_INDEX_ID` matches the index you intend to write to.
+- `Vertex query failed`: 
+    - Check if `VECTOR_ENDPOINT_ID` has a deployed index.
+- Embedding dimension mismatch: 
+    - Index must be created with dimensions matching `text-embedding-004` (768). Recreate index if dimensions differ.
+- Permission/auth issues: confirm ADC/service account has Vertex AI permissions.
 
 ### Auth
 - Application Default Credentials must be active (`gcloud auth application-default login`) with access to Firestore, GCS, and Vertex Matching Engine.
