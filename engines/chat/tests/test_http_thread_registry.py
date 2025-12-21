@@ -21,15 +21,31 @@ def test_thread_auto_registered_on_creation(clean_registry):
     app = create_app()
     client = TestClient(app)
     
-    tenant_id = "test-tenant-1"
+    tenant_id = "t_test-tenant-1"
     headers = {
         "x-tenant-id": tenant_id,
         "x-user-id": "user-1",
         "x-env": "dev"
     }
     
+    # Mock Auth
+    from engines.identity.auth import get_auth_context, AuthContext
+
+    def mock_get_auth_context():
+        return AuthContext(
+            user_id="user-1",
+            email="test@example.com",
+            tenant_ids=["t_test-tenant-1"],
+            default_tenant_id="t_test-tenant-1",
+            role_map={"t_test-tenant-1": "owner"},
+            provider="test",
+            claims={}
+        )
+
+    app.dependency_overrides[get_auth_context] = mock_get_auth_context
+
     # 1. Create thread via HTTP
-    resp = client.post("/chat/threads", json={"participants": []}, headers=headers)
+    resp = client.post("/chat/threads", json=[], headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     thread_id = data["id"]
