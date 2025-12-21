@@ -54,6 +54,22 @@ How to use this doc: Assign lanes to separate engineers, execute each TODO exact
   ```
   (New/updated test asserts stream endpoint returns 200 instead of 404 when headers/auth provided.)
 
+- TODO ID: L1-A4
+  Blocker it resolves: Multi-node / multi-process realtime (Chat Bus is in-memory only)
+  Fix scope: ⚠️ moderate
+  Code pointers: engines/chat/service/transport_layer.py::<bus|InMemoryBus> and add new file engines/chat/service/redis_transport.py::RedisBus
+  Exact change: Implement RedisBus (redis-py) adhering to the existing bus protocol. Update transport_layer.py to instantiate RedisBus when CHAT_BUS_BACKEND=redis, else default to InMemoryBus.
+  Done means: Setting CHAT_BUS_BACKEND=redis enables cross-process message passing for chat.
+  Verification (VTE required):
+  ```
+  date -u
+  echo "RUN_TOKEN=$(date -u +%Y%m%dT%H%M%SZ)-$RANDOM"
+  git rev-parse HEAD
+  git status --porcelain
+  python3 -m pytest engines/chat/tests/test_redis_transport.py -q
+  echo $?
+  ```
+
 **LANE 2**
 - TODO ID: L2-T1  
   Blocker it resolves: “raw storage register_asset doesn’t persist metadata”  
@@ -157,6 +173,7 @@ pytest engines/media_v2/tests/test_media_v2_endpoints.py::test_get_requires_auth
 GATECHAIN_ALLOW_MISSING=1 pytest engines/nexus/hardening/tests/test_prod_gates.py::test_gate_chain_allows_missing_when_flagged -q
 pytest engines/nexus/tests/test_backends.py::test_get_backend_falls_back_without_firestore -q
 pytest engines/logging/tests/test_event_logging_fallback.py -q
+python3 -m pytest engines/chat/tests/test_redis_transport.py -q
 echo $?
 ```
 
