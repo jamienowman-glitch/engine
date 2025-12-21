@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class TemperatureWeightsPlan(BaseModel):
-    tenantId: str = Field(..., regex=r"^t_[a-z0-9_-]+$")
+    tenantId: str = Field(..., pattern=r"^t_[a-z0-9_-]+$")
     env: str
     weights: Dict[str, float] = Field(default_factory=dict)
     note: Optional[str] = None

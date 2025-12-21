@@ -1,74 +1,202 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
 
-from engines.maybes.schemas import MaybesFilters
-from engines.maybes.service import (
-    CanvasLayoutUpdate,
-    MaybesForbidden,
-    MaybesNotFound,
-    MaybesService,
-)
+from engines.common.identity import RequestContext
+from engines.logging import audit
+from engines.maybes import service as maybes_service
+from engines.maybes.schemas import MaybeCreate, MaybeQuery, MaybeUpdate, MaybeSourceType
+from engines.maybes.service import MaybesNotFound, MaybesService
 
 
-def test_create_update_archive_logs_events():
-    events = []
-    svc = MaybesService(event_logger=lambda e: events.append(e))
-    note = svc.create_note("t_demo", "u1", body="hello", title="note1", tags=["alpha"])
-    assert note.asset_type == "maybes_note"
-    assert events[-1].event_type == "maybes_created"
+@pytest.fixture(autouse=True)
+def stub_gate_chain(monkeypatch):
+    class _StubGateChain:
+        def run(self, *args, **kwargs):
+            return None
 
-    updated = svc.update_note(note.maybes_id, "t_demo", "u1", {"body": "updated", "is_pinned": True})
-    assert updated.body == "updated"
-    assert updated.is_pinned is True
-    assert any(e.event_type == "maybes_updated" for e in events)
-
-    archived = svc.archive_note(note.maybes_id, "t_demo", "u1")
-    assert archived.is_archived is True
-    assert events[-1].event_type == "maybes_archived"
+    monkeypatch.setattr(maybes_service, "get_gate_chain", lambda: _StubGateChain())
+    yield
 
 
-def test_filters_apply_tags_search_and_dates():
-    svc = MaybesService(event_logger=lambda e: None)
-    note_recent = svc.create_note("t_demo", "u1", body="alpha body", tags=["alpha"])
-    note_old = svc.create_note("t_demo", "u1", body="beta content", tags=["beta"])
-    note_old.created_at = datetime.now(timezone.utc) - timedelta(days=10)
-    svc._repo.save(note_old)  # type: ignore[attr-defined]
-
-    filters = MaybesFilters(tags=["alpha"])
-    results = svc.list_notes("t_demo", "u1", filters)
-    assert [n.maybes_id for n in results] == [note_recent.maybes_id]
-
-    filters = MaybesFilters(search="beta")
-    results = svc.list_notes("t_demo", "u1", filters)
-    assert results and results[0].maybes_id == note_old.maybes_id
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=5)
-    filters = MaybesFilters(created_after=cutoff)
-    results = svc.list_notes("t_demo", "u1", filters)
-    assert note_recent.maybes_id in {n.maybes_id for n in results}
-    assert note_old.maybes_id not in {n.maybes_id for n in results}
-
-
-def test_canvas_layout_updates_and_logs():
-    events = []
-    svc = MaybesService(event_logger=lambda e: events.append(e))
-    note = svc.create_note("t_demo", "u1", body="layout")
-    layouts = svc.save_canvas_layout(
-        "t_demo",
-        "u1",
-        [CanvasLayoutUpdate(maybes_id=note.maybes_id, layout_x=1.5, layout_y=2.5, layout_scale=0.8)],
+def test_create_and_get():
+    svc = MaybesService()
+    ctx = RequestContext(request_id="r1", tenant_id="t_demo", env="dev", user_id="u1")
+    created = svc.create_item(
+        MaybeCreate(
+            tenant_id="t_demo",
+            env="dev",
+            space="scratchpad-default",
+            user_id="u1",
+            title="note",
+            body="hello world body",
+            tags=["alpha"],
+            source_type=MaybeSourceType.user,
+        ),
+        ctx,
     )
-    assert layouts[0]["layout_x"] == 1.5
-    assert any(e.event_type == "maybes_updated" for e in events)
+    fetched = svc.get_item(ctx, created.id)
+    assert fetched.id == created.id
+    assert fetched.tenant_id == "t_demo"
+    assert fetched.env == "dev"
 
 
-def test_forbidden_and_not_found():
-    svc = MaybesService(event_logger=lambda e: None)
-    note = svc.create_note("t_demo", "u1", body="secure")
-    with pytest.raises(MaybesForbidden):
-        svc.get_note(note.maybes_id, "t_demo", "other_user")
+def test_tenant_and_env_isolation():
+    svc = MaybesService()
+    ctx = RequestContext(request_id="r1", tenant_id="t_a", env="dev")
+    item = svc.create_item(
+        MaybeCreate(
+            tenant_id="t_a",
+            env="dev",
+            space="scratchpad-default",
+            title="same id",
+            body="content",
+        ),
+        ctx,
+    )
     with pytest.raises(MaybesNotFound):
-        svc.get_note("missing", "t_demo", "u1")
+        svc.get_item(RequestContext(request_id="r2", tenant_id="t_other", env="dev"), item.id)
+    with pytest.raises(MaybesNotFound):
+        svc.get_item(RequestContext(request_id="r3", tenant_id="t_a", env="prod"), item.id)
+    # list for other tenant/env is empty
+    res = svc.list_items(MaybeQuery(tenant_id="t_other", env="dev"))
+    assert res == []
+    res = svc.list_items(MaybeQuery(tenant_id="t_a", env="prod"))
+    assert res == []
+
+
+def test_list_filters_and_search():
+    svc = MaybesService()
+    ctx = RequestContext(request_id="r1", tenant_id="t_demo", env="dev")
+    svc.create_item(
+        MaybeCreate(
+            tenant_id="t_demo",
+            env="dev",
+            space="scratchpad-default",
+            user_id="u1",
+            title="alpha title",
+            body="body match",
+            tags=["tag1"],
+            pinned=True,
+        ),
+        ctx,
+    )
+    svc.create_item(
+        MaybeCreate(
+            tenant_id="t_demo",
+            env="dev",
+            space="other-space",
+            user_id="u2",
+            title="beta",
+            body="irrelevant",
+            tags=["tag2"],
+            pinned=False,
+            source_type=MaybeSourceType.agent,
+        ),
+        ctx,
+    )
+    svc.create_item(
+        MaybeCreate(
+            tenant_id="t_demo",
+            env="dev",
+            space="scratchpad-default",
+            user_id="u1",
+            title="archived",
+            body="older",
+            tags=["tag1", "tag3"],
+        ),
+        ctx,
+    )
+    # archived filter
+    for item in svc.list_items(MaybeQuery(tenant_id="t_demo", env="dev")).copy():
+        if item.title == "archived":
+            svc.update_item(ctx, item.id, MaybeUpdate(archived=True))
+    # space filter
+    res = svc.list_items(MaybeQuery(tenant_id="t_demo", env="dev", space="scratchpad-default"))
+    assert all(i.space == "scratchpad-default" for i in res)
+    # user filter + tags_any + pinned_only
+    res = svc.list_items(
+        MaybeQuery(
+            tenant_id="t_demo",
+            env="dev",
+            user_id="u1",
+            tags_any=["tag1"],
+            pinned_only=True,
+        )
+    )
+    assert len(res) == 1
+    assert res[0].pinned is True
+    # search
+    res = svc.list_items(
+        MaybeQuery(
+            tenant_id="t_demo",
+            env="dev",
+            search_text="alpha",
+        )
+    )
+    assert res and "alpha" in res[0].title
+    # archived flag
+    res = svc.list_items(
+        MaybeQuery(
+            tenant_id="t_demo",
+            env="dev",
+            archived=True,
+        )
+    )
+    assert all(i.archived for i in res)
+
+
+def test_update_and_delete():
+    svc = MaybesService()
+    ctx = RequestContext(request_id="r1", tenant_id="t_demo", env="dev")
+    created = svc.create_item(
+        MaybeCreate(
+            tenant_id="t_demo",
+            env="dev",
+            space="scratchpad-default",
+            title="title",
+            body="body",
+        ),
+        ctx,
+    )
+    updated = svc.update_item(
+        ctx,
+        created.id,
+        MaybeUpdate(title="new title", body="new body", pinned=True, archived=True),
+    )
+    assert updated.title == "new title"
+    assert updated.pinned is True
+    assert updated.archived is True
+
+    svc.delete_item(ctx, created.id)
+    with pytest.raises(MaybesNotFound):
+        svc.get_item(ctx, created.id)
+
+
+def test_audit_metadata_includes_request_id(monkeypatch):
+    svc = MaybesService()
+    ctx = RequestContext(request_id="req-123", tenant_id="t_demo", env="dev", user_id="u1")
+    recorded: list = []
+
+    def stub_logger(event):
+        recorded.append(event)
+        return {"status": "accepted"}
+
+    monkeypatch.setattr(audit, "_audit_logger", stub_logger)
+
+    svc.create_item(
+        MaybeCreate(
+            tenant_id="t_demo",
+            env="dev",
+            space="scratchpad-default",
+            title="audit note",
+            body="body",
+        ),
+        ctx,
+    )
+
+    assert recorded
+    metadata = recorded[-1].metadata
+    assert metadata["request_id"] == ctx.request_id
+    assert metadata["trace_id"] == ctx.request_id
+    assert metadata["actor_type"] == "human"

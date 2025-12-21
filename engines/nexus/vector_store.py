@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
+from engines.common.identity import RequestContext
+from engines.common.selecta import SelectaResolver, get_selecta_resolver
 from engines.config import runtime_config
 from engines.nexus.schemas import NexusEmbedding, NexusKind
 
@@ -64,27 +66,18 @@ class VertexVectorStore(NexusVectorStore):
         location: Optional[str] = None,
         timeout_seconds: float = 10.0,
         endpoint: Optional[Any] = None,
+        selecta: Optional[SelectaResolver] = None,
     ) -> None:
-        self.index_id = index_id or runtime_config.get_vector_index_id()
-        self.endpoint_id = endpoint_id or runtime_config.get_vector_endpoint_id()
-        self.project = project or runtime_config.get_firestore_project()
-        self.location = location or runtime_config.get_region() or "us-central1"
         self._timeout = timeout_seconds
-        if endpoint is not None:
-            self._endpoint = endpoint
-        else:
-            self._endpoint = self._init_endpoint()
-
-    def _init_endpoint(self):
-        if aiplatform is None:
-            raise VectorStoreError("google-cloud-aiplatform not installed for Vertex Vector Search")
-        if not self.project or not self.endpoint_id:
-            raise VectorStoreError("Vertex vector project/endpoint are required")
-        aiplatform.init(project=self.project, location=self.location)
-        endpoint_path = f"projects/{self.project}/locations/{self.location}/indexEndpoints/{self.endpoint_id}"
-        return aiplatform.MatchingEngineIndexEndpoint(index_endpoint_name=endpoint_path)  # type: ignore[attr-defined]
+        self._endpoint = endpoint
+        self._selecta = selecta or get_selecta_resolver()
+        self.index_id = index_id
+        self.endpoint_id = endpoint_id
+        self.project = project
+        self.location = location
 
     def upsert(self, embedding: NexusEmbedding) -> None:
+        self._ensure_endpoint(embedding.tenant_id, embedding.env)
         datapoint = {
             "datapoint_id": embedding.doc_id,
             "feature_vector": embedding.embedding,
@@ -108,6 +101,7 @@ class VertexVectorStore(NexusVectorStore):
     def bulk_upsert(self, embeddings: Sequence[NexusEmbedding]) -> None:
         if not embeddings:
             return
+        self._ensure_endpoint(embeddings[0].tenant_id, embeddings[0].env)
         datapoints = []
         for emb in embeddings:
             datapoints.append(
@@ -138,8 +132,9 @@ class VertexVectorStore(NexusVectorStore):
         kind: NexusKind,
         top_k: int = 5,
     ) -> List[VectorHit]:
+        self._ensure_endpoint(tenant_id, env)
         if not self.index_id:
-            raise VectorStoreError("Vertex index_id is required for query")
+            raise VectorStoreError("Vertex index_id is required for queries")
         filters = {
             "namespace": "metadata",
             "allow": [
@@ -197,3 +192,21 @@ class VertexVectorStore(NexusVectorStore):
                 metadata = neighbor.get("restricts") or neighbor.get("attributes") or {}
             hits.append(VectorHit(doc_id=doc_id, score=float(score), metadata=dict(metadata)))
         return hits
+
+    # --- internal ---
+    def _ensure_endpoint(self, tenant_id: str, env: str) -> None:
+        if getattr(self, "_endpoint", None) is not None:
+            return
+        cfg = RequestContext(request_id="selecta", tenant_id=tenant_id, env=env)
+        vs_cfg = self._selecta.vector_store_config(cfg)
+        self.index_id = vs_cfg.index_id
+        self.endpoint_id = vs_cfg.endpoint_id
+        self.project = vs_cfg.project
+        self.location = vs_cfg.region or runtime_config.get_env_region_fallback()
+        if aiplatform is None:
+            raise VectorStoreError("google-cloud-aiplatform not installed for Vertex Vector Search")
+        if not self.project or not self.endpoint_id:
+            raise VectorStoreError("Vertex vector project/endpoint are required")
+        aiplatform.init(project=self.project, location=self.location)
+        endpoint_path = f"projects/{self.project}/locations/{self.location}/indexEndpoints/{self.endpoint_id}"
+        self._endpoint = aiplatform.MatchingEngineIndexEndpoint(index_endpoint_name=endpoint_path)  # type: ignore[attr-defined]

@@ -24,7 +24,7 @@ class ChatState(BaseModel):
 
 
 class ChatMessageIn(BaseModel):
-    tenantId: str = Field(..., regex=r"^t_[a-z0-9_-]+$")
+    tenantId: str = Field(..., pattern=r"^t_[a-z0-9_-]+$")
     env: Env
     surface: str
     conversationId: str

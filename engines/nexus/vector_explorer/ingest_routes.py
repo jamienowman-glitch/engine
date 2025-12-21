@@ -4,9 +4,13 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from engines.nexus.vector_explorer.ingest_service import IngestError, VectorIngestService
+from engines.common.identity import RequestContext, get_request_context
+from engines.identity.auth import get_auth_context, require_tenant_membership
+from engines.strategy_lock.models import ACTION_VECTOR_INGEST
+from engines.strategy_lock.service import get_strategy_lock_service
 
 router = APIRouter()
 _service: VectorIngestService | None = None
@@ -21,8 +25,6 @@ def _get_service() -> VectorIngestService:
 
 @router.post("/vector-explorer/ingest")
 async def ingest_vector_item(
-    tenant_id: str = Form(..., pattern=r"^t_[a-z0-9_-]+$"),
-    env: str = Form(...),
     space: str = Form(...),
     content_type: str = Form(...),
     label: str = Form(...),
@@ -30,7 +32,11 @@ async def ingest_vector_item(
     text_content: Optional[str] = Form(None),
     source_ref: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
 ):
+    require_tenant_membership(auth, context.tenant_id)
+    get_strategy_lock_service().require_strategy_lock_or_raise(context, surface=space, action=ACTION_VECTOR_INGEST)
     try:
         file_bytes = await file.read() if file else None
     except Exception as exc:  # pragma: no cover - narrow IO failure
@@ -43,8 +49,8 @@ async def ingest_vector_item(
 
     try:
         result = _get_service().ingest(
-            tenant_id=tenant_id,
-            env=env,
+            tenant_id=context.tenant_id,
+            env=context.env,
             space=space,
             content_type=content_type,
             label=label,
@@ -52,6 +58,7 @@ async def ingest_vector_item(
             text_content=text_content,
             file_bytes=file_bytes,
             filename=file.filename if file else None,
+            user_id=context.user_id,
             source_ref=source_ref_dict,
         )
     except IngestError as exc:

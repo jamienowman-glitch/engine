@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator
 
 MediaKind = Literal["video", "audio", "image", "other"]
 ArtifactKind = Literal[
@@ -15,6 +15,7 @@ ArtifactKind = Literal[
     "mask",
     "render",
     "render_segment",
+    "render_snippet",
     "asr_transcript",
     "bars",
     "beat_features",
@@ -23,6 +24,34 @@ ArtifactKind = Literal[
     "audio_voice_enhanced",
     "render_360",
     "video_region_summary",
+    "audio_hit",
+    "audio_loop",
+    "audio_phrase",
+    "audio_sample_fx",
+    "audio_sample_norm",
+    "audio_render",
+    "audio_resampled",
+    "audio_bus_stem",
+    "sample_pack",
+    "audio_groove_profile",
+    "video_shot_list",
+    "audio_macro",
+    "audio_stem_drum",
+    "audio_stem_bass",
+    "audio_stem_vocal",
+    "audio_stem_other",
+    "audio_mix_snapshot",
+    "video_automation_curve",
+    "video_proxy",
+    "video_proxy_360p",
+    "video_proxy_720p",
+    "video_stabilise_transform",
+    "image_render",
+    "vector_scene",
+    "text_render",
+    "image_composition",
+    "cad_model",
+    "cad_semantics",
 ]
 
 
@@ -67,6 +96,44 @@ class DerivedArtifact(BaseModel):
     track_label: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     meta: Dict[str, Any] = Field(default_factory=dict)
+
+    @root_validator(skip_on_failure=True)
+    def _ensure_tenant_env_and_meta(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        tenant_id = values.get("tenant_id")
+        env = values.get("env")
+        meta = dict(values.get("meta") or {})
+        if not tenant_id or not env:
+            raise ValueError("DerivedArtifact requires tenant_id and env")
+        kind = values.get("kind")
+        meta_updates = _REQUIRED_META.get(kind)
+        if meta_updates:
+            for key, default in meta_updates.items():
+                if key not in meta:
+                    meta[key] = default(kind)
+        values["meta"] = meta
+        return values
+
+_REQUIRED_META: Dict[str, Dict[str, Any]] = {
+    "video_region_summary": {
+        "backend_version": lambda kind: f"{kind}_unknown",
+        "model_used": lambda kind: f"{kind}_unknown",
+        "cache_key": lambda kind: f"{kind}_auto_cache",
+        "duration_ms": lambda kind: 0,
+    },
+    "visual_meta": {
+        "backend_version": lambda kind: f"{kind}_unknown",
+        "model_used": lambda kind: f"{kind}_unknown",
+        "cache_key": lambda kind: f"{kind}_auto_cache",
+        "duration_ms": lambda kind: 0,
+        "frame_sample_interval_ms": lambda kind: 0,
+    },
+    "asr_transcript": {
+        "backend_version": lambda kind: f"{kind}_unknown",
+        "model_used": lambda kind: f"{kind}_unknown",
+        "cache_key": lambda kind: f"{kind}_auto_cache",
+        "duration_ms": lambda kind: 0,
+    },
+}
 
 # Backwards compatibility alias for older imports
 Artifact = DerivedArtifact

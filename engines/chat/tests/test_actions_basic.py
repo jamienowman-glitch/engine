@@ -1,10 +1,19 @@
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from engines.chat.service.server import create_app
+from engines.chat.service.routes_actions import router as actions_router
+from engines.chat.tests.auth_helpers import auth_headers
+
+
+def _actions_app():
+    app = FastAPI()
+    app.include_router(actions_router)
+    return app
 
 
 def test_strategy_lock_action_stub() -> None:
-    client = TestClient(create_app())
+    client = TestClient(_actions_app())
+    headers = auth_headers()
     payload = {
         "tenantId": "t_demo",
         "env": "dev",
@@ -13,7 +22,7 @@ def test_strategy_lock_action_stub() -> None:
         "scope": "session",
         "confirm": False,
     }
-    resp = client.post("/chat/actions/strategy_lock", json=payload)
+    resp = client.post("/chat/actions/strategy_lock", json=payload, headers=headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "accepted"
@@ -21,7 +30,8 @@ def test_strategy_lock_action_stub() -> None:
 
 
 def test_three_wise_action_stub() -> None:
-    client = TestClient(create_app())
+    client = TestClient(_actions_app())
+    headers = auth_headers()
     payload = {
         "tenantId": "t_demo",
         "env": "dev",
@@ -29,6 +39,6 @@ def test_three_wise_action_stub() -> None:
         "conversationId": "c1",
         "prompt": "check this",
     }
-    resp = client.post("/chat/actions/three_wise", json=payload)
+    resp = client.post("/chat/actions/three_wise", json=payload, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["action"] == "three_wise"

@@ -8,12 +8,11 @@ try:
 except Exception:  # pragma: no cover - optional dep
     firestore = None
 
-from engines.config import runtime_config
 from engines.nexus.vector_explorer.schemas import VectorExplorerItem
 
 
 class VectorCorpusRepository(Protocol):
-    def get(self, item_id: str) -> VectorExplorerItem | None:
+    def get(self, tenant_id: str, env: str, item_id: str) -> VectorExplorerItem | None:
         ...
 
     def list_filtered(
@@ -35,7 +34,8 @@ class InMemoryVectorCorpusRepository:
     def __init__(self, items: list[VectorExplorerItem] | None = None) -> None:
         self._items = {item.id: item for item in (items or [])}
 
-    def get(self, item_id: str) -> VectorExplorerItem | None:
+    def get(self, tenant_id: str, env: str, item_id: str) -> VectorExplorerItem | None:
+        # tenant/env retained for interface parity; isolation enforced by caller
         return self._items.get(item_id)
 
     def list_filtered(
@@ -73,25 +73,28 @@ class FirestoreVectorCorpusRepository:
         if firestore is None:
             raise RuntimeError("google-cloud-firestore not installed")
         self._client = client or self._default_client()
-        cfg = runtime_config.config_snapshot()
-        self._tenant = cfg.get("tenant_id") or ""
 
     def _default_client(self):
+        from engines.config import runtime_config
+
         project = runtime_config.get_firestore_project()
         if not project:
             raise RuntimeError("GCP_PROJECT_ID/GCP_PROJECT is required for Firestore corpus repository")
         return firestore.Client(project=project)  # type: ignore[arg-type]
 
     def _collection(self, tenant_id: str):
-        suffix = tenant_id or self._tenant or "t_unknown"
-        return self._client.collection(f"vector_corpus_{suffix}")
+        if not tenant_id:
+            raise RuntimeError("tenant_id is required for vector corpus operations")
+        return self._client.collection(f"vector_corpus_{tenant_id}")
 
-    def get(self, item_id: str) -> VectorExplorerItem | None:
-        col = self._collection(self._tenant)
+    def get(self, tenant_id: str, env: str, item_id: str) -> VectorExplorerItem | None:
+        col = self._collection(tenant_id or self._tenant)
         snap = col.document(item_id).get()
         if not snap or not snap.exists:
             return None
         data = snap.to_dict() or {}
+        if data.get("env") and data.get("env") != env:
+            return None
         return _item_from_doc(data)
 
     def list_filtered(

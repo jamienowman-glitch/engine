@@ -2335,3 +2335,74 @@ Plan a MaybesNote scratchpad surface (backend/core) for long-form notes; lives o
 - Decide logging shape for selection events (EventLog schema fields) and whether to add a specific event_type namespace.
 - Confirm recipe parameterization (spacing/scale defaults) before exposing to core.
 - Settle camera defaults so FE can render without guesswork.
+
+---
+
+### PLAN-0AM: DUAL-ENGINE MUSCLE STRATEGY (MESH + SOLID)
+
+Status: PENDING
+Owner: Antigravity
+Area: engines/core-muscles
+Summary: Implement two distinct geometry kernels to power specialized agents: one for artistic/creative mesh workflows (v1) and one for precision/CAD solid workflows (v1).
+
+**Strategic Goal**
+Build "Muscle Engines" that run headlessly and can be driven by atomic tokens from specialized agents.
+- **Engine A (Mesh)**: High-speed, forgiving, artistic. For avatars, creative apps.
+- **Engine B (Solid)**: Precision, manufacturable, rigid. For product design, architecture.
+
+**Architecture**
+Both engines expose an "Atomic Operation" API (stateless) that agents use to build/modify state.
+
+#### ENGINE-024 – Mesh Muscle (Creative) v1
+**Goal:** A lightweight Python/NumPy/Trimesh kernel for rapid organic modeling.
+**Capabilities:**
+- Primitive creation (Sphere, Box, Monkey).
+- Subdivision (Catmull-Clark).
+- Sculpting deformers (Move, Smooth, Inflate).
+- Boolean (Approximate/Mesh-based).
+**Stack:** Python + NumPy + Trimesh.
+
+#### ENGINE-025 – Solid Muscle (Precision) v1
+**Goal:** A robust CAD kernel wrapper for engineering precision.
+**Capabilities:**
+- BREP Primitives (Cylinder, Box, Cone).
+- Boolean (Union, Difference, Intersection) - Exact.
+- Fillet/Chamfer edges.
+- Sketch Extrusion.
+**Stack:** Binding to C++ Kernel (Manifold or OpenCascade - TBD).
+
+**Tasks:**
+- [ ] Scaffold `engines/mesh_kernel` and `engines/solid_kernel`.
+- [ ] Define shared `AgentInstruction` schema (Token -> Operation).
+- [ ] Implement V1 primitives for both.
+
+### PLAN-AVATAR-BUILDER – Collaborative Avatar & Scene System (The "App")
+
+- **Status**: PLANNING
+- **Owner**: Antigravity
+- **Area**: engines/avatar-builder
+- **Summary**: A comprehensive roadmap to build a "Living Clay" application where Humans and AI co-create animated avatars in 3D worlds.
+- **Detail**:
+  - **Phase 1 (Mesh)**: Primitive/Sculpt muscles (DONE).
+  - **Phase 2 (Paint)**: Material Engine for textures, shaders, and "skin" painting.
+  - **Phase 3 (Bones)**: Rigging & Animation Engine for auto-rigging and playback.
+  - **Phase 4 (Stage)**: Scene Engine extensions for props, lighting, and composition.
+  - **Phase 5 (App)**: Collaborative Agent workflows (Vision -> Tokens -> Engines).
+- **Artefacts**:
+  - docs/plans/AVATAR_BUILDER_PLAN.md
+
+### PLAN-GRIME-STUDIO – The "Full Gas" Showcase
+
+- **Status**: PLANNING
+- **Owner**: Antigravity
+- **Area**: engines/showcase/grime-studio
+- **Summary**: Build a hyper-realistic "recording studio" environment with 3 humanoid robots (DJ + 2 MCs) to demonstrate maximum engine capability.
+- **Detail**:
+  - **Environment**: Decks (CDJs), Mixer, Speakers, Mics (High Fidelity Props).
+  - **Avatars**: 3 distinct robot rigs (Selecta_Bot, Spit_Bot_1, Spit_Bot_2).
+  - **Animation**: Implement Inverse Kinematics (IK) for precise Mic-to-Mouth handling.
+  - **Integration**: "Director Script" to orchestrate lighting, animation, and scene composition.
+- **Artefacts**:
+  - docs/plans/GRIME_STUDIO_PLAN.md
+
+

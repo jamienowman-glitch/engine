@@ -1,0 +1,68 @@
+[
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-platform-net",
+    "location": "centralus",
+    "managedBy": null,
+    "name": "rg-platform-net",
+    "properties": {
+      "provisioningState": "Succeeded"
+    },
+    "tags": null,
+    "type": "Microsoft.Resources/resourceGroups"
+  },
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-platform-sec",
+    "location": "centralus",
+    "managedBy": null,
+    "name": "rg-platform-sec",
+    "properties": {
+      "provisioningState": "Succeeded"
+    },
+    "tags": null,
+    "type": "Microsoft.Resources/resourceGroups"
+  },
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-platform-mgmt",
+    "location": "centralus",
+    "managedBy": null,
+    "name": "rg-platform-mgmt",
+    "properties": {
+      "provisioningState": "Succeeded"
+    },
+    "tags": null,
+    "type": "Microsoft.Resources/resourceGroups"
+  },
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-lz-prod",
+    "location": "centralus",
+    "managedBy": null,
+    "name": "rg-lz-prod",
+    "properties": {
+      "provisioningState": "Succeeded"
+    },
+    "tags": null,
+    "type": "Microsoft.Resources/resourceGroups"
+  },
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-lz-nonprod",
+    "location": "centralus",
+    "managedBy": null,
+    "name": "rg-lz-nonprod",
+    "properties": {
+      "provisioningState": "Succeeded"
+    },
+    "tags": null,
+    "type": "Microsoft.Resources/resourceGroups"
+  },
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-lz-sandbox",
+    "location": "centralus",
+    "managedBy": null,
+    "name": "rg-lz-sandbox",
+    "properties": {
+      "provisioningState": "Succeeded"
+    },
+    "tags": null,
+    "type": "Microsoft.Resources/resourceGroups"
+  }
+]

@@ -1,52 +1,54 @@
 # Fonts Helper & Registry
 
-Planning-only contract for font registry + helper (PLAN-028). Defines schemas and clamping rules; no runtime code in this pass.
+Contract PLAN-028 now describes the runtime registry used by typography/image/video engines. The JSON files under `engines/design/fonts/` model every font, its axis presets, and envelope/clamp rules so backend renderers can stay deterministic.
 
-## Inputs from cards/apps
-- Cards pass `font_id`, `preset_code`, and optional `tracking` adjustment (design units basis points).
-- Cards never pass raw axis values.
-
-## Font config schema (registry entry)
+## Runtime schema
 ```json
 {
   "font_id": "roboto_flex",
   "display_name": "Roboto Flex",
-  "css_family_name": "'Roboto Flex', sans-serif",
-  "tracking_bounds": { "min": -50, "max": 300 },
+  "css_family_name": "\"Roboto Flex\", system-ui, -apple-system, sans-serif",
+  "tracking_min_design": -200,
+  "tracking_max_design": 200,
+  "tracking_default_design": 0,
+  "primary_file_path": "fonts/roboto-flex/RobotoFlex-VariableFont.ttf",
   "axes": {
-    "wght": { "min": 100, "max": 1000 },
-    "wdth": { "min": 75, "max": 125 }
+    "opsz": { "min": 8, "max": 144, "default": 14 },
+    "wght": { "min": 100, "max": 1000, "default": 400 },
+    "GRAD": { "min": -200, "max": 200, "default": 0 },
+    "wdth": { "min": 50, "max": 151, "default": 100 }
   },
   "presets": {
-    "regular": { "wght": 400, "wdth": 100, "opsz": 16 },
-    "extrablack": { "wght": 1000, "wdth": 100, "opsz": 48 }
+    "regular": { "opsz": 14, "wght": 400, "GRAD": 0, "wdth": 100 },
+    "extrablack": { "opsz": 14, "wght": 1000, "GRAD": 0, "wdth": 100 }
   }
 }
 ```
-- `font_id` is the lookup key; `presets` map codes to axis values; `tracking_bounds` used to clamp card-provided tracking.
-- Registry stored as JSON under `docs/engines/fonts/` (planned); helper loads into memory.
+
+- `font_id` is the lookup key; `display_name`/`font_id` are both valid handles at runtime.
+- `axes` lists every supported axis with `min`, `max`, and `default` so callers can clamp overrides before passing them to layout.
+- `presets` provide starting axis values; the registry merges any `axis_overrides` with the preset before building variation strings.
+- Every font JSON sits next to the actual `.ttf`/`.otf` under `engines/design/fonts/`, so renderers can resolve disk paths without guessing.
 
 ## Helper behaviour
-1) Accept input `{ font_id, preset_code, tracking? }`.
-2) Lookup font; if missing, raise `unknown_font`.
-3) Lookup preset; if missing, raise `unknown_preset`.
-4) Clamp `tracking` to `[min, max]` bounds; default tracking = 0 if omitted.
-5) Emit tokens:
+1. Accept `{ font_id, preset_code, tracking?, axis_overrides? }`.
+2. Lookup the font; if missing, raise `unknown_font`.
+3. Lookup the preset; if missing, fall back to the first preset available (to stay resilient when new fonts only expose a single instance).
+4. Clamp `tracking` to `[tracking_min_design, tracking_max_design]` and convert to an em-based letter spacing that downstream renderers reuse.
+5. Merge the preset axes with overrides and clamp every axis to its built-in bounds so renderers never ask for out-of-range values.
+6. Emit tokens plus axis metadata:
 ```json
 {
-  "fontFamily": "'Roboto Flex', sans-serif",
-  "fontVariationSettings": "'wght' 400, 'wdth' 100, 'opsz' 16",
-  "letterSpacing": "0.12em"  // based on clamped tracking
+  "fontFamily": "\"Roboto Flex\", system-ui, -apple-system, sans-serif",
+  "fontVariationSettings": "'GRAD' 0, 'opsz' 14, 'wdth' 100, 'wght' 400",
+  "letterSpacing": "-0.0500em",
+  "variant_axes": { "wght": 400, "wdth": 100, "opsz": 14, "GRAD": 0 }
 }
 ```
-- Helper is deterministic: same inputs → same tokens; ignores unknown axes in presets.
+- Helper is deterministic: same inputs always produce the same tokens, axis map, and letter spacing.
 
-## Tests (future)
-- Unknown font/preset throws.
-- Tracking clamps to min/max.
-- Stable token generation for known font/preset combos.
-- Supports Roboto Flex as initial registry entry; extendable with more fonts using same shape.
-
-## Consumers
-- UI/engines consume emitted tokens; framework-agnostic (usable in React/Tailwind/static).
-- Cards/apps should cache `font_id` + `preset_code` + `tracking` combinations; server can recompute tokens consistently.
+## Tests
+- Unknown font raises `KeyError`.
+- Preset fallback is predictable (first preset returned when requested code is missing).
+- Tracking clamps to `tracking_min_design`/`tracking_max_design`.
+- Axis overrides clamp per-axis and appear in the emitted metadata.

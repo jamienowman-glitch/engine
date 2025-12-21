@@ -12,6 +12,8 @@ class TextRenderRequest(BaseModel):
     text: str
     font_family: str = "Inter"  # Logic in service to resolve this to file
     font_size_px: int = 100
+    font_preset: str = "regular"
+    tracking: int = 0
     color_hex: str = "#FFFFFF"
     width: Optional[int] = None
     height: Optional[int] = None

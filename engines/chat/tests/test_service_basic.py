@@ -1,17 +1,24 @@
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from engines.chat.service.server import create_app
+from engines.chat.service.routes import router as service_router
+
+
+def _service_client():
+    app = FastAPI()
+    app.include_router(service_router)
+    return TestClient(app)
 
 
 def test_health() -> None:
-    client = TestClient(create_app())
+    client = _service_client()
     resp = client.get("/chat/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
 
 
 def test_post_message_roundtrip() -> None:
-    client = TestClient(create_app())
+    client = _service_client()
     payload = {
         "tenantId": "t_demo",
         "env": "dev",

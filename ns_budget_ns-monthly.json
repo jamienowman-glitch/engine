@@ -1,0 +1,86 @@
+{
+  "eTag": "\"1dc6c15890f5970\"",
+  "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/providers/Microsoft.Consumption/budgets/ns-monthly",
+  "name": "ns-monthly",
+  "properties": {
+    "amount": 200.0,
+    "category": "Cost",
+    "currentSpend": {
+      "amount": 0.0,
+      "unit": "GBP"
+    },
+    "filter": {},
+    "forecastSpend": {
+      "amount": 0.0,
+      "unit": null
+    },
+    "notifications": {
+      "actual100": {
+        "contactEmails": [
+          "jamienowman@gmail.com"
+        ],
+        "contactGroups": [],
+        "contactRoles": [],
+        "enabled": true,
+        "locale": "en-us",
+        "operator": "GreaterThanOrEqualTo",
+        "threshold": 100.0,
+        "thresholdType": "Actual"
+      },
+      "actual50": {
+        "contactEmails": [
+          "jamienowman@gmail.com"
+        ],
+        "contactGroups": [],
+        "contactRoles": [],
+        "enabled": true,
+        "locale": "en-us",
+        "operator": "GreaterThan",
+        "threshold": 50.0,
+        "thresholdType": "Actual"
+      },
+      "actual80": {
+        "contactEmails": [
+          "jamienowman@gmail.com"
+        ],
+        "contactGroups": [],
+        "contactRoles": [],
+        "enabled": true,
+        "locale": "en-us",
+        "operator": "GreaterThan",
+        "threshold": 80.0,
+        "thresholdType": "Actual"
+      },
+      "actual90": {
+        "contactEmails": [
+          "jamienowman@gmail.com"
+        ],
+        "contactGroups": [],
+        "contactRoles": [],
+        "enabled": true,
+        "locale": "en-us",
+        "operator": "GreaterThan",
+        "threshold": 90.0,
+        "thresholdType": "Actual"
+      },
+      "forecast90": {
+        "contactEmails": [
+          "jamienowman@gmail.com"
+        ],
+        "contactGroups": [],
+        "contactRoles": [],
+        "enabled": true,
+        "locale": "en-us",
+        "operator": "GreaterThan",
+        "threshold": 90.0,
+        "thresholdType": "Forecasted"
+      }
+    },
+    "timeGrain": "Monthly",
+    "timePeriod": {
+      "endDate": "2035-12-01T00:00:00Z",
+      "startDate": "2025-12-01T00:00:00Z"
+    }
+  },
+  "type": "Microsoft.Consumption/budgets"
+}

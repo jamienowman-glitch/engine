@@ -6,6 +6,21 @@
   "tracking_max_design": 200,
   "tracking_default_design": 0,
   "primary_file_path": "fonts/roboto-flex/RobotoFlex-VariableFont.ttf",
+  "axes": {
+    "opsz": {"min": 8, "max": 144, "default": 14},
+    "wght": {"min": 100, "max": 1000, "default": 400},
+    "GRAD": {"min": -200, "max": 200, "default": 0},
+    "wdth": {"min": 50, "max": 151, "default": 100},
+    "slnt": {"min": -12, "max": 0, "default": 0},
+    "XOPQ": {"min": 0, "max": 100, "default": 96},
+    "YOPQ": {"min": 0, "max": 100, "default": 79},
+    "XTRA": {"min": 0, "max": 600, "default": 468},
+    "YTUC": {"min": 0, "max": 1000, "default": 712},
+    "YTLC": {"min": 0, "max": 1000, "default": 522},
+    "YTAS": {"min": 0, "max": 1000, "default": 750},
+    "YTDE": {"min": -1000, "max": 0, "default": -203},
+    "YTFI": {"min": 0, "max": 1000, "default": 738}
+  },
   "presets": {
     "regular": {"opsz": 14, "wght": 400, "GRAD": 0, "wdth": 100, "slnt": 0, "XOPQ": 96, "YOPQ": 79, "XTRA": 468, "YTUC": 712, "YTLC": 522, "YTAS": 750, "YTDE": -203, "YTFI": 738},
     "extrablack_italic": {"opsz": 14, "wght": 900, "GRAD": 0, "wdth": 100, "slnt": -10, "XOPQ": 96, "YOPQ": 79, "XTRA": 468, "YTUC": 712, "YTLC": 522, "YTAS": 750, "YTDE": -203, "YTFI": 738}

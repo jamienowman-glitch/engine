@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
+from engines.common.identity import RequestContext
+from engines.common.selecta import get_selecta_resolver
 from engines.config import runtime_config
 
 try:  # pragma: no cover - optional dependency
@@ -24,13 +26,13 @@ class EmbeddingResult:
 
 
 class EmbeddingAdapter:
-    def embed_text(self, text: str, model_id: Optional[str] = None) -> EmbeddingResult:
+    def embed_text(self, text: str, model_id: Optional[str] = None, context: Optional[RequestContext] = None) -> EmbeddingResult:
         raise NotImplementedError
 
-    def embed_image(self, image_uri: str, model_id: Optional[str] = None) -> EmbeddingResult:
+    def embed_image(self, image_uri: str, model_id: Optional[str] = None, context: Optional[RequestContext] = None) -> EmbeddingResult:
         raise NotImplementedError
 
-    def embed_image_bytes(self, image_bytes: bytes, model_id: Optional[str] = None) -> EmbeddingResult:
+    def embed_image_bytes(self, image_bytes: bytes, model_id: Optional[str] = None, context: Optional[RequestContext] = None) -> EmbeddingResult:
         raise NotImplementedError
 
 
@@ -38,18 +40,30 @@ class VertexEmbeddingAdapter(EmbeddingAdapter):
     """Minimal Vertex embedding adapter (text/image)."""
 
     def __init__(self, client: Optional[object] = None) -> None:
+        self._selecta = get_selecta_resolver()
         self._client = client or self._init_client()
 
     def _init_client(self):
         if vertexai_init is None or TextEmbeddingModel is None or MultiModalEmbeddingModel is None:
             raise RuntimeError("google-cloud-aiplatform/vertexai not installed for Vertex embeddings")
+        ctx = self._default_ctx()
         project = runtime_config.get_firestore_project()
-        location = runtime_config.get_region() or "us-central1"
+        location = runtime_config.get_region() or runtime_config.get_env_region_fallback()
         vertexai_init(project=project, location=location)
         return {"project": project, "location": location}
 
-    def embed_text(self, text: str, model_id: Optional[str] = None) -> EmbeddingResult:
-        model = model_id or runtime_config.get_text_embedding_model_id()
+    def _default_ctx(self) -> RequestContext:
+        tenant = runtime_config.get_tenant_id()
+        env = runtime_config.get_env() or "dev"
+        if not tenant:
+            if env not in {"dev", "local"}:
+                raise RuntimeError("tenant_id is required for embedding resolution")
+            tenant = "t_dev"
+        return RequestContext(request_id="selecta_embed", tenant_id=tenant, env=env)
+
+    def embed_text(self, text: str, model_id: Optional[str] = None, context: Optional[RequestContext] = None) -> EmbeddingResult:
+        ctx = context or self._default_ctx()
+        model = model_id or self._selecta.embed_config(ctx).model_id
         if self._client is None or model is None:
             raise RuntimeError("Vertex embedding client/model missing")
         
@@ -64,8 +78,9 @@ class VertexEmbeddingAdapter(EmbeddingAdapter):
         except Exception as e:
             raise RuntimeError(f"Vertex text embedding failed for model {model}: {e}") from e
 
-    def embed_image(self, image_uri: str, model_id: Optional[str] = None) -> EmbeddingResult:
-        model = model_id or runtime_config.get_image_embedding_model_id()
+    def embed_image(self, image_uri: str, model_id: Optional[str] = None, context: Optional[RequestContext] = None) -> EmbeddingResult:
+        ctx = context or self._default_ctx()
+        model = model_id or self._selecta.embed_config(ctx).model_id
         if self._client is None or model is None:
             raise RuntimeError("Vertex embedding client/model missing")
         
@@ -90,8 +105,9 @@ class VertexEmbeddingAdapter(EmbeddingAdapter):
         except Exception as e:
             raise RuntimeError(f"Vertex image embedding failed for model {model}: {e}") from e
 
-    def embed_image_bytes(self, image_bytes: bytes, model_id: Optional[str] = None) -> EmbeddingResult:
-        model = model_id or runtime_config.get_image_embedding_model_id()
+    def embed_image_bytes(self, image_bytes: bytes, model_id: Optional[str] = None, context: Optional[RequestContext] = None) -> EmbeddingResult:
+        ctx = context or self._default_ctx()
+        model = model_id or self._selecta.embed_config(ctx).model_id
         if self._client is None or model is None:
             raise RuntimeError("Vertex embedding client/model missing")
         

@@ -1,0 +1,23 @@
+[
+  {
+    "displayName": "Landing Zones",
+    "id": "/providers/Microsoft.Management/managementGroups/mg-landingzones",
+    "name": "mg-landingzones",
+    "tenantId": "532fccc4-7f99-401d-b680-58ebf453877a",
+    "type": "Microsoft.Management/managementGroups"
+  },
+  {
+    "displayName": "Northstar",
+    "id": "/providers/Microsoft.Management/managementGroups/mg-northstar",
+    "name": "mg-northstar",
+    "tenantId": "532fccc4-7f99-401d-b680-58ebf453877a",
+    "type": "Microsoft.Management/managementGroups"
+  },
+  {
+    "displayName": "Platform",
+    "id": "/providers/Microsoft.Management/managementGroups/mg-platform",
+    "name": "mg-platform",
+    "tenantId": "532fccc4-7f99-401d-b680-58ebf453877a",
+    "type": "Microsoft.Management/managementGroups"
+  }
+]

@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Iterable
 
 from pydantic import BaseModel, Field
+
+
+class AxisBounds(BaseModel):
+    min: float
+    max: float
+    default: float
+
+    def clamp(self, value: float) -> float:
+        return max(self.min, min(self.max, value))
 
 
 class FontPreset(BaseModel):
@@ -20,13 +29,29 @@ class FontPreset(BaseModel):
     YTDE: float
     YTFI: float
 
-    def to_variation_settings(self) -> str:
+    @classmethod
+    def axis_fields(cls) -> Iterable[str]:
         return (
-            f\"'opsz' {self.opsz}, 'wght' {self.wght}, 'GRAD' {self.GRAD}, "
-            f\"'wdth' {self.wdth}, 'slnt' {self.slnt}, 'XOPQ' {self.XOPQ}, 'YOPQ' {self.YOPQ}, "
-            f\"'XTRA' {self.XTRA}, 'YTUC' {self.YTUC}, 'YTLC' {self.YTLC}, 'YTAS' {self.YTAS}, "
-            f\"'YTDE' {self.YTDE}, 'YTFI' {self.YTFI}\"
+            "opsz",
+            "wght",
+            "GRAD",
+            "wdth",
+            "slnt",
+            "XOPQ",
+            "YOPQ",
+            "XTRA",
+            "YTUC",
+            "YTLC",
+            "YTAS",
+            "YTDE",
+            "YTFI",
         )
+
+    def axis_values(self) -> Dict[str, float]:
+        return {axis: getattr(self, axis) for axis in self.axis_fields()}
+
+    def to_variation_settings(self) -> str:
+        return ", ".join(f"'{axis}' {value}" for axis, value in self.axis_values().items())
 
 
 class FontConfig(BaseModel):
@@ -37,4 +62,5 @@ class FontConfig(BaseModel):
     tracking_max_design: int
     tracking_default_design: int
     primary_file_path: str
+    axes: Dict[str, AxisBounds] = Field(default_factory=dict)
     presets: Dict[str, FontPreset] = Field(default_factory=dict)

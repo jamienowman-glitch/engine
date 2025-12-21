@@ -1,0 +1,16 @@
+{
+  "environmentName": "AzureCloud",
+  "homeTenantId": "532fccc4-7f99-401d-b680-58ebf453877a",
+  "id": "64cce95c-7395-41e4-87c4-0141783036b9",
+  "isDefault": true,
+  "managedByTenants": [],
+  "name": "Azure subscription 1",
+  "state": "Enabled",
+  "tenantDefaultDomain": "jamienowmangmail.onmicrosoft.com",
+  "tenantDisplayName": "Default Directory",
+  "tenantId": "532fccc4-7f99-401d-b680-58ebf453877a",
+  "user": {
+    "name": "jamienowman@gmail.com",
+    "type": "user"
+  }
+}

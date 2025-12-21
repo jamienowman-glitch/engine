@@ -14,7 +14,7 @@ def test_align_endpoint():
     # Service Mock
     # We need a service that has a session already in its repo
     mock_media = MagicMock()
-    mock_media.get_asset.return_value = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", source_uri="gs://foo")
+    mock_media.get_asset.side_effect = lambda aid: MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", source_uri="gs://foo") if aid == "a1" else None
     
     service = MultiCamService(media_service=mock_media, align_backend=StubAlignBackend())
     session = MultiCamSession(

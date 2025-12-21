@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from engines.video_multicam.models import (
     CreateMultiCamSessionRequest,
@@ -12,14 +12,13 @@ from engines.video_multicam.models import (
     MultiCamBuildSequenceResult,
     MultiCamSession,
 )
-from engines.video_multicam.service import get_multicam_service
+from engines.video_multicam.service import get_multicam_service, MultiCamService
 
 router = APIRouter(prefix="/video/multicam", tags=["video_multicam"])
 
 
 @router.post("/sessions", response_model=MultiCamSession)
-def create_session(req: CreateMultiCamSessionRequest):
-    service = get_multicam_service()
+def create_session(req: CreateMultiCamSessionRequest, service: MultiCamService = Depends(get_multicam_service)):
     try:
         return service.create_session(req)
     except ValueError as e:
@@ -27,14 +26,12 @@ def create_session(req: CreateMultiCamSessionRequest):
 
 
 @router.get("/sessions", response_model=List[MultiCamSession])
-def list_sessions(tenant_id: str, project_id: Optional[str] = None):
-    service = get_multicam_service()
+def list_sessions(tenant_id: str, project_id: Optional[str] = None, service: MultiCamService = Depends(get_multicam_service)):
     return service.list_sessions(tenant_id, project_id=project_id)
 
 
 @router.get("/sessions/{session_id}", response_model=MultiCamSession)
-def get_session(session_id: str):
-    service = get_multicam_service()
+def get_session(session_id: str, service: MultiCamService = Depends(get_multicam_service)):
     session = service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -42,10 +39,9 @@ def get_session(session_id: str):
 
 
 @router.post("/sessions/{session_id}/align", response_model=MultiCamAlignResult)
-def align_session(session_id: str, req: MultiCamAlignRequest):
+def align_session(session_id: str, req: MultiCamAlignRequest, service: MultiCamService = Depends(get_multicam_service)):
     if req.session_id != session_id:
         raise HTTPException(status_code=400, detail="Session ID mismatch")
-    service = get_multicam_service()
     try:
         return service.align_session(req)
     except ValueError as e:
@@ -53,10 +49,9 @@ def align_session(session_id: str, req: MultiCamAlignRequest):
 
 
 @router.post("/sessions/{session_id}/build-sequence", response_model=MultiCamBuildSequenceResult)
-def build_sequence(session_id: str, req: MultiCamBuildSequenceRequest):
+def build_sequence(session_id: str, req: MultiCamBuildSequenceRequest, service: MultiCamService = Depends(get_multicam_service)):
     if req.session_id != session_id:
         raise HTTPException(status_code=400, detail="Session ID mismatch")
-    service = get_multicam_service()
     try:
         return service.build_sequence(req)
     except ValueError as e:
@@ -64,10 +59,9 @@ def build_sequence(session_id: str, req: MultiCamBuildSequenceRequest):
 
 
 @router.post("/sessions/{session_id}/auto-cut", response_model=MultiCamAutoCutResult)
-def auto_cut_session(session_id: str, req: MultiCamAutoCutRequest):
+def auto_cut_session(session_id: str, req: MultiCamAutoCutRequest, service: MultiCamService = Depends(get_multicam_service)):
     if req.session_id != session_id:
         raise HTTPException(status_code=400, detail="Session ID mismatch")
-    service = get_multicam_service()
     try:
         return service.auto_cut_sequence(req)
     except ValueError as e:

@@ -27,3 +27,6 @@ class DatasetEvent(BaseModel):
     asset_alt_text: Optional[str] = None
     analytics_event_type: Optional[str] = None
     analytics_platform: Optional[str] = None
+    traceId: Optional[str] = None
+    requestId: Optional[str] = None
+    actorType: Optional[str] = None

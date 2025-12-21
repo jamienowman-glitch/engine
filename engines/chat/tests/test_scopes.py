@@ -1,5 +1,8 @@
+import asyncio
+
 from engines.chat.contracts import ChatScope, Contact
 from engines.chat.pipeline import process_message
+from engines.common.identity import RequestContext
 
 
 class DummyBackend:
@@ -34,7 +37,15 @@ def test_scoped_message_logs_scope(monkeypatch):
         "engines.guardrails.pii_text.engine.run", lambda req: DummyPiiResult()
     )
     scope = ChatScope(kind="federation", target_id="fed_landing_pages")
-    msgs = process_message("t1", Contact(id="u1"), "hello scoped", scope=scope)
+    msgs = asyncio.run(
+        process_message(
+            "t1",
+            Contact(id="u1"),
+            "hello scoped",
+            scope=scope,
+            context=RequestContext(tenant_id="t_scope", env="dev", request_id="req-scope"),
+        )
+    )
     assert len(backend.snippets) == 1
     tags = backend.snippets[0]["tags"]
     assert "federation" in tags and "fed_landing_pages" in tags
@@ -42,4 +53,4 @@ def test_scoped_message_logs_scope(monkeypatch):
     assert backend.events, "expected log event"
     logged = backend.events[-1]
     assert logged.input.get("scope", {}).get("kind") == "federation"
-    assert msgs[1].scope == scope
+    assert msgs[0].scope == scope

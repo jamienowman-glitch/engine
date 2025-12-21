@@ -6,9 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Optional, Sequence
 
-from engines.config import runtime_config
+from engines.common.identity import RequestContext
 from engines.dataset.events.schemas import DatasetEvent
 from engines.logging.events.engine import run as log_dataset_event
+from engines.logging.audit import emit_audit_event
+from engines.budget.service import get_budget_service, BudgetService
+from engines.budget.models import UsageEvent
 from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
 from engines.nexus.vector_explorer.repository import FirestoreVectorCorpusRepository, VectorCorpusRepository
 from engines.nexus.vector_explorer.schemas import VectorExplorerItem
@@ -34,15 +37,14 @@ class VectorIngestService:
         embedder: Optional[EmbeddingAdapter] = None,
         gcs_client: Optional[GcsClient] = None,
         event_logger: Optional[callable] = None,
+        budget_service: Optional[BudgetService] = None,
     ) -> None:
         self._corpus = corpus_repo or FirestoreVectorCorpusRepository()
         self._vector_store = vector_store or VertexExplorerVectorStore()
         self._embedder = embedder or VertexEmbeddingAdapter()
         self._gcs = gcs_client or GcsClient()
-        self._event_logger = event_logger or log_dataset_event
-        cfg = runtime_config.config_snapshot()
-        self._tenant_default = cfg.get("tenant_id")
-        self._env_default = cfg.get("env") or "dev"
+        self._event_logger = event_logger or (lambda e: None)
+        self._budget_service = budget_service or get_budget_service()
 
     def ingest(
         self,
@@ -56,13 +58,12 @@ class VectorIngestService:
         text_content: Optional[str],
         file_bytes: Optional[bytes],
         filename: Optional[str],
+        user_id: Optional[str] = None,
         source_ref: Optional[Dict[str, str]] = None,
     ) -> IngestResult:
-        tenant = tenant_id or self._tenant_default
-        if not tenant:
-            raise IngestError("tenant_id is required")
-        if not env:
-            raise IngestError("env is required")
+        tenant = tenant_id
+        if not tenant or not env:
+            raise IngestError("tenant_id and env are required")
         if content_type not in {"text", "image", "video", "pdf"}:
             raise IngestError("content_type must be one of text|image|video|pdf")
 
@@ -94,7 +95,13 @@ class VectorIngestService:
             source_ref["gcs_uri"] = gcs_uri
 
         # 2) Embed (real embedding) and upsert to vector index.
-        vector, model_id = self._embed_for_content(content_type, text_content, file_bytes)
+        vector, model_id, est_tokens = self._embed_for_content(
+            content_type=content_type,
+            text_content=text_content,
+            file_bytes=file_bytes,
+            tenant_id=tenant,
+            env=env,
+        )
         metadata = {
             "tenant_id": tenant,
             "env": env,
@@ -115,6 +122,11 @@ class VectorIngestService:
             )
         except Exception as exc:
             raise IngestError(f"vector upsert failed: {exc}")
+        self._record_usage(
+            RequestContext(request_id="vector_ingest", tenant_id=tenant, env=env),
+            model_id=model_id,
+            tokens=est_tokens,
+        )
 
         # 3) Corpus record
         item = VectorExplorerItem(
@@ -145,6 +157,12 @@ class VectorIngestService:
                 metadata={"kind": "vector_ingest.success"},
             )
         )
+        emit_audit_event(
+            RequestContext(request_id="vector_ingest", tenant_id=tenant, env=env, user_id=user_id),
+            action="vector_ingest:create",
+            surface="vector_explorer",
+            metadata={"asset_id": asset_id, "space": space},
+        )
         return IngestResult(item=item, gcs_uri=gcs_uri)
 
     def _embed_for_content(
@@ -152,23 +170,27 @@ class VectorIngestService:
         content_type: str,
         text_content: Optional[str],
         file_bytes: Optional[bytes],
-    ) -> tuple[Sequence[float], str]:
+        tenant_id: Optional[str],
+        env: Optional[str],
+    ) -> tuple[Sequence[float], str, int]:
+        ctx = RequestContext(request_id="vector_ingest", tenant_id=tenant_id or "", env=env or "")
         try:
             if content_type == "image":
                 if file_bytes is None:
                     raise IngestError("image content requires file_bytes")
-                result = self._embedder.embed_image_bytes(file_bytes)  # type: ignore[attr-defined]
-                return result.vector, result.model_id
+                result = self._embedder.embed_image_bytes(file_bytes, context=ctx)  # type: ignore[attr-defined]
+                return result.vector, result.model_id, 0
             # video/pdf/text → require text_content for embedding
             if not text_content:
                 raise IngestError("text_content is required for text/video/pdf ingest")
-            result = self._embedder.embed_text(text_content)
-            return result.vector, result.model_id
+            result = self._embedder.embed_text(text_content, context=ctx)
+            est_tokens = max(1, len(text_content) // 4)
+            return result.vector, result.model_id, est_tokens
         except IngestError:
             self._log_event(
                 DatasetEvent(
-                    tenantId=tenant_id or self._tenant_default or "t_unknown",
-                    env=env,
+                    tenantId=tenant_id or "",
+                    env=env or "",
                     surface="vector_ingest",
                     agentId="vector_ingest",
                     input={"content_type": content_type},
@@ -200,5 +222,27 @@ class VectorIngestService:
             return
         try:
             self._event_logger(event)
+        except Exception:
+            return
+
+    def _record_usage(self, context: RequestContext, model_id: str, tokens: int) -> None:
+        try:
+            self._budget_service.record_usage(
+                context,
+                [
+                    UsageEvent(
+                        tenant_id=context.tenant_id,
+                        env=context.env,
+                        surface="vector_explorer",
+                        tool_type="embedding",
+                        tool_id="vector_ingest",
+                        provider="vertex",
+                        model_or_plan_id=model_id,
+                        tokens_input=tokens,
+                        tokens_output=0,
+                        cost=0,
+                    )
+                ],
+            )
         except Exception:
             return

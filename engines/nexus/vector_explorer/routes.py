@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from engines.common.identity import RequestContext, get_request_context
+from engines.identity.auth import get_auth_context, require_tenant_membership
 from engines.nexus.embedding import VertexEmbeddingAdapter
 from engines.nexus.vector_explorer.repository import FirestoreVectorCorpusRepository
 from engines.nexus.vector_explorer.schemas import QueryMode, VectorExplorerQuery
@@ -29,18 +31,19 @@ def _get_service() -> VectorExplorerService:
 
 @router.get("/vector-explorer/scene")
 def get_vector_scene(
-    tenant_id: str = Query(..., pattern=r"^t_[a-z0-9_-]+$"),
-    env: str = Query(...),
     space: str = Query(...),
     query_mode: QueryMode = QueryMode.all,
     limit: int = Query(20, ge=1, le=200),
     tags: Optional[str] = None,
     anchor_id: Optional[str] = None,
     query_text: Optional[str] = None,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
 ):
+    require_tenant_membership(auth, context.tenant_id)
     q = VectorExplorerQuery(
-        tenant_id=tenant_id,
-        env=env,
+        tenant_id=context.tenant_id,
+        env=context.env,
         space=space,
         tags=[t for t in (tags.split(",") if tags else []) if t],
         query_mode=query_mode,

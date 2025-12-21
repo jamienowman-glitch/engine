@@ -72,12 +72,29 @@ def _get_bus():
             port = int(os.getenv("REDIS_PORT", 6379))
             return RedisBus(host=host, port=port)
         except Exception as e:
-            # Fallback or log?
-            print(f"Failed to load RedisBus: {e}")
-            return InMemoryBus()
-    return InMemoryBus()
+            raise RuntimeError(f"Failed to load RedisBus: {e}")
+            
+    # If we get here, it's an invalid configuration
+    if backend == "memory":
+        # Explicitly disallow 'memory' as well, ensuring we only run with real infra
+        raise RuntimeError("CHAT_BUS_BACKEND='memory' is not allowed in Real Infra mode.")
+        
+    raise RuntimeError(f"CHAT_BUS_BACKEND must be 'redis'. Got: '{backend}'")
 
-bus = _get_bus()
+class LazyBus:
+    def __init__(self):
+        self._impl = None
+
+    @property
+    def _bus(self):
+        if self._impl is None:
+            self._impl = _get_bus()
+        return self._impl
+
+    def __getattr__(self, name):
+        return getattr(self._bus, name)
+
+bus = LazyBus()
 
 
 def publish_message(thread_id: str, sender: Contact, text: str, role: str = "user", scope: ChatScope | None = None) -> Message:

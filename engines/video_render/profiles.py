@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from typing import Dict, Literal
+
+RenderProfile = Literal[
+    "draft_480p_fast",
+    "preview_720p_fast",
+    "social_1080p_h264",
+    "1080p_30_web",
+    "youtube_4k_h264",
+    "master_4k_prores",
+]
+
+PROFILE_MAP: Dict[RenderProfile, dict] = {
+    "social_1080p_h264": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "vcodec": "libx264",
+        "acodec": "aac",
+        "audio_bitrate": "192k",
+        "bitrate": "6M",
+        "preset": "medium",
+        "pix_fmt": "yuv420p",
+        "threads": 4,
+        "description": "1080p H.264 for social delivery with balanced quality",
+        "audio_channels": 2,
+        "audio_sample_rate": 48000,
+    },
+    "preview_720p_fast": {
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "vcodec": "libx264",
+        "acodec": "aac",
+        "audio_bitrate": "128k",
+        "bitrate": "2.5M",
+        "preset": "fast",
+        "pix_fmt": "yuv420p",
+        "threads": 4,
+        "description": "Preview-quality 720p export tuned for quick turnaround",
+        "audio_channels": 2,
+        "audio_sample_rate": 44100,
+    },
+    "youtube_4k_h264": {
+        "width": 3840,
+        "height": 2160,
+        "fps": 30,
+        "vcodec": "libx264",
+        "acodec": "aac",
+        "audio_bitrate": "320k",
+        "bitrate": "16M",
+        "preset": "slow",
+        "pix_fmt": "yuv420p",
+        "threads": 6,
+        "description": "High-bitrate 4K export for YouTube masters",
+        "audio_channels": 2,
+        "audio_sample_rate": 48000,
+    },
+    "master_4k_prores": {
+        "width": 3840,
+        "height": 2160,
+        "fps": 30,
+        "vcodec": "prores_ks",
+        "acodec": "pcm_s16le",
+        "audio_bitrate": None, # PCM doesn't need bitrate
+        "bitrate": None,
+        "preset": "standard",
+        "pix_fmt": "yuv422p10le",
+        "threads": 4,
+        "description": "ProRes 4K master with uncompressed audio",
+        "audio_channels": 2,
+        "audio_sample_rate": 48000,
+    },
+    "1080p_30_web": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "vcodec": "libx264",
+        "acodec": "aac",
+        "audio_bitrate": "192k",
+        "bitrate": "6M",
+        "preset": "medium",
+        "pix_fmt": "yuv420p",
+        "threads": 3,
+    },
+    "draft_480p_fast": {
+        "width": 854,
+        "height": 480,
+        "fps": 24,
+        "vcodec": "libx264",
+        "acodec": "aac",
+        "audio_bitrate": "96k",
+        "bitrate": "1.4M",
+        "preset": "superfast",
+        "pix_fmt": "yuv420p",
+        "threads": 2,
+        "description": "Low-res draft export for quick iterations",
+        "audio_channels": 2,
+        "audio_sample_rate": 22050,
+    },
+}
+
+# GPU preference per profile (first match that exists in host encoders wins)
+PROFILE_GPU_PREFERENCES: Dict[RenderProfile, list[str]] = {
+    "social_1080p_h264": ["h264_nvenc", "h264_videotoolbox"],
+    "preview_720p_fast": ["h264_nvenc", "h264_videotoolbox"],
+    "draft_480p_fast": ["h264_nvenc", "h264_videotoolbox"],
+    "1080p_30_web": ["h264_nvenc", "h264_videotoolbox"],
+    "youtube_4k_h264": ["h264_nvenc"],
+    # master_4k_prores typically remains CPU/prores_ks
+    "master_4k_prores": [],
+}

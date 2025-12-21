@@ -1,0 +1,11 @@
+[
+  {
+    "id": "/subscriptions/64cce95c-7395-41e4-87c4-0141783036b9/resourceGroups/rg-platform-net/providers/Microsoft.Authorization/locks/lock-rg-platform-net-cannotdelete",
+    "level": "CanNotDelete",
+    "name": "lock-rg-platform-net-cannotdelete",
+    "notes": null,
+    "owners": null,
+    "resourceGroup": "rg-platform-net",
+    "type": "Microsoft.Authorization/locks"
+  }
+]

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import random
-from typing import Dict, List, Optional, Protocol
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Protocol
 
 from engines.media_v2.service import MediaService, get_media_service
 from engines.video_multicam.models import (
@@ -17,11 +19,25 @@ from engines.video_multicam.models import (
 )
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import TimelineService, get_timeline_service
-from engines.align.service import AlignService, get_align_service
+from engines.video_multicam.backend import MultiCamAlignBackend, LibrosaAlignBackend, StubAlignBackend
+from engines.storage.gcs_client import GcsClient
+import tempfile
+import os
+import uuid
+from pathlib import Path
 
-class MultiCamAlignBackend(Protocol):
-    def calculate_offset(self, master_audio_path: str, angle_audio_path: str) -> float:
-        ...
+logger = logging.getLogger(__name__)
+
+TIMECODE_ENV = "VIDEO_MULTICAM_TIMECODE_OFFSETS"
+PACER_ENV = "VIDEO_MULTICAM_PACING_PRESET"
+SAMPLE_RATE_HZ = 1000
+ALIGNMENT_CACHE_VERSION = "v1"
+PACING_PRESETS = {
+    "fast": {"min": 1000, "max": 4000},
+    "medium": {"min": 2000, "max": 6000},
+    "slow": {"min": 3000, "max": 9000},
+}
+SCORE_VERSION = "v1"
 
 class StubAlignBackend:
     def calculate_offset(self, master_audio_path: str, angle_audio_path: str) -> float:
@@ -56,10 +72,80 @@ class MultiCamService:
         self.repo = InMemorySessionRepository()
         self.media_service = media_service or get_media_service()
         self.timeline_service = timeline_service or get_timeline_service()
-        self.repo = InMemorySessionRepository()
-        self.media_service = media_service or get_media_service()
-        self.timeline_service = timeline_service or get_timeline_service()
-        self.align_service = align_backend or get_align_service()
+        self.align_backend = align_backend or LibrosaAlignBackend()
+        try:
+            self.gcs = GcsClient()
+        except Exception:
+            self.gcs = None
+
+    def _ensure_local(self, uri: str) -> str:
+        if uri.startswith("gs://") and self.gcs:
+            try:
+                bucket_path = uri.replace("gs://", "", 1)
+                bucket_name, key = bucket_path.split("/", 1)
+                tmp_path = Path(tempfile.gettempdir()) / f"dl_align_{uuid.uuid4().hex}_{Path(key).name}"
+                bucket = self.gcs._client.bucket(bucket_name) # type: ignore
+                blob = bucket.blob(key)
+                blob.download_to_filename(str(tmp_path))
+                return str(tmp_path)
+            except Exception:
+                return uri
+        return uri
+
+    def _parse_timecode_overrides(self) -> Dict[str, int]:
+        raw = os.getenv(TIMECODE_ENV)
+        if not raw:
+            return {}
+        try:
+            payload = json.loads(raw)
+            overrides: Dict[str, int] = {}
+            for aid, value in payload.items():
+                overrides[aid] = int(value)
+            return overrides
+        except Exception:
+            logger.warning("Invalid timecode overrides in %s", TIMECODE_ENV)
+            return {}
+
+    def _waveform_samples_for_asset(self, asset) -> Optional[List[float]]:
+        meta = getattr(asset, "meta", None) or {}
+        raw = meta.get("waveform")
+        if isinstance(raw, list) and raw:
+            try:
+                return [float(v) for v in raw]
+            except Exception:
+                return None
+        return None
+
+    def _cross_correlation_offset(self, master: List[float], angle: List[float], max_search_ms: int) -> int:
+        if not master or not angle:
+            return 0
+        latency = min(max_search_ms, len(master), len(angle))
+        best_corr = float("-inf")
+        best_lag = 0
+        lag_limit = int(latency)
+        for lag in range(-lag_limit, lag_limit + 1):
+            score = 0.0
+            count = 0
+            for idx, m_val in enumerate(master):
+                ai = idx + lag
+                if ai < 0 or ai >= len(angle):
+                    continue
+                score += m_val * angle[ai]
+                count += 1
+            if count == 0:
+                continue
+            corr = score / count
+            if corr > best_corr or (corr == best_corr and abs(lag) < abs(best_lag)):
+                best_corr = corr
+                best_lag = lag
+        return int(best_lag)
+
+    def _align_via_backend(self, base_path: str, angle_path: str) -> float:
+        try:
+            return self.align_backend.calculate_offset(base_path, angle_path)
+        except Exception as exc:
+            logger.warning("Alignment backend failed: %s", exc)
+            return 0.0
 
     def create_session(self, req: CreateMultiCamSessionRequest) -> MultiCamSession:
         # Validate assets exist
@@ -95,41 +181,60 @@ class MultiCamService:
         if not session:
             raise ValueError("Session not found")
 
-        # Resolve local paths (mocked here by URI for stub backend)
-        # In real impl, use media_service to download/resolve
-        # Prepare local paths
-        # Logic to ensure local file path omitted for V1 stub simplicity
-        # We pass source_uri which the backend might use or ignore
+        # Resolve paths
         asset_map = {}
         for t in session.tracks:
             asset = self.media_service.get_asset(t.asset_id)
             if asset:
-                 asset_map[t.asset_id] = asset.source_uri
+                 # Download if needed
+                 local_path = self._ensure_local(asset.source_uri)
+                 if os.path.exists(local_path):
+                     asset_map[t.asset_id] = local_path
+                 else:
+                     # Fallback to URI if not exists (might be http or local absolute)
+                     asset_map[t.asset_id] = asset.source_uri
 
         base_asset_id = session.base_asset_id or session.tracks[0].asset_id
         base_path = asset_map.get(base_asset_id)
         if not base_path:
             raise ValueError(f"Base asset {base_asset_id} not resolvable")
 
-        offsets = {}
-        for asset_id, path in asset_map.items():
-            if asset_id == base_asset_id:
-                offsets[asset_id] = 0
-                continue
-            
-            # Backend returns offset relative to master
-            # Positive offset means angle audio should be delayed (started later) to match master
-            # MultiCamTrackSpec.offset_ms matches this semantics
-            try:
-                # AlignService: align_service.calculate_offset(master, angle)
-                # Note: our Protocol definition above might mismatch AlignService if we aren't careful.
-                # AlignService has `calculate_offset`.
-                # We cast align_service to Any or ensure Protocol matches.
-                # Actually, AlignService is concrete.
-                offset = self.align_service.calculate_offset(base_path, path)
-                offsets[asset_id] = int(offset)
-            except Exception:
-                offsets[asset_id] = 0
+        overrides = self._parse_timecode_overrides()
+        cache_key = f"{req.alignment_method}:{req.max_search_ms}:{ALIGNMENT_CACHE_VERSION}"
+        cached = session.meta.get("alignment_cache", {}).get(cache_key)
+        if cached:
+            offsets = dict(cached)
+            logger.info("Alignment cache hit for session %s", session.id)
+            if overrides:
+                for aid, value in overrides.items():
+                    if aid in offsets:
+                        offsets[aid] = value
+                        logger.info("Applied timecode override for %s -> %s ms", aid, value)
+        else:
+            offsets: Dict[str, int] = {}
+            master_samples = self._waveform_samples_for_asset(self.media_service.get_asset(base_asset_id))
+            for asset_id, path in asset_map.items():
+                if asset_id == base_asset_id:
+                    offsets[asset_id] = 0
+                    continue
+                if req.alignment_method == "stub":
+                    offsets[asset_id] = 0
+                    continue
+                if req.alignment_method == "waveform_cross_correlation" and master_samples:
+                    angle_asset = self.media_service.get_asset(asset_id)
+                    angle_samples = self._waveform_samples_for_asset(angle_asset) or []
+                    if angle_samples:
+                        offsets[asset_id] = self._cross_correlation_offset(master_samples, angle_samples, req.max_search_ms)
+                        logger.info("Cross-corr offset %s -> %s ms", asset_id, offsets[asset_id])
+                        continue
+                offsets[asset_id] = int(self._align_via_backend(base_path, path))
+
+            session.meta.setdefault("alignment_cache", {})[cache_key] = dict(offsets)
+            session.meta["last_alignment"] = {
+                "method": req.alignment_method,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "offsets": offsets,
+            }
 
         # Update session
         for t in session.tracks:
@@ -138,9 +243,18 @@ class MultiCamService:
         
         self.repo.update(session)
         
+        result_meta = {
+            "method": req.alignment_method,
+            "cache_key": cache_key,
+            "cache_hit": bool(cached),
+            "alignment_version": ALIGNMENT_CACHE_VERSION,
+        }
+        if overrides:
+            result_meta["timecode_overrides"] = overrides
         return MultiCamAlignResult(
             session_id=session.id,
-            offsets_ms=offsets
+            offsets_ms=offsets,
+            meta=result_meta,
         )
 
     def build_sequence(self, req: MultiCamBuildSequenceRequest) -> MultiCamBuildSequenceResult:
@@ -231,11 +345,9 @@ class MultiCamService:
     def auto_cut_sequence(self, req: MultiCamAutoCutRequest) -> MultiCamAutoCutResult:
         session = self.get_session(req.session_id)
         if not session:
-             raise ValueError("Session not found")
+            raise ValueError("Session not found")
 
         project_id = req.project_id or session.project_id or "unknown"
-        
-        # Create Program Sequence
         prog_seq = self.timeline_service.create_sequence(
             Sequence(
                 project_id=project_id,
@@ -245,7 +357,6 @@ class MultiCamService:
                 name=f"{session.name} - Program Cut"
             )
         )
-        
         prog_track = self.timeline_service.create_track(
             Track(
                 sequence_id=prog_seq.id,
@@ -257,82 +368,181 @@ class MultiCamService:
             )
         )
 
-        # Logic: Iterate time
-        # Find min offsets to determine common start? Assumed 0 for now.
-        # Determine total duration (max end of any track)
+        assets_info: Dict[str, Dict[str, Any]] = {}
         total_duration = 0
-        assets_info = {}
         for t in session.tracks:
-             asset = self.media_service.get_asset(t.asset_id)
-             dur = asset.duration_ms if asset else 0
-             offset = t.offset_ms or 0
-             total_duration = max(total_duration, offset + dur)
-             assets_info[t.asset_id] = {"dur": dur, "offset": offset, "role": t.role}
+            asset = self.media_service.get_asset(t.asset_id)
+            duration = asset.duration_ms if asset and asset.duration_ms else 60000
+            offset = t.offset_ms or 0
+            artifacts = self.media_service.list_artifacts_for_asset(t.asset_id)
+            role = t.role or "primary"
+            total_duration = max(total_duration, offset + duration)
+            assets_info[t.asset_id] = {
+                "asset_id": t.asset_id,
+                "dur": duration,
+                "offset": offset,
+                "role": role,
+                "artifacts": artifacts,
+            }
 
-        cursor = 0
-        rng = random.Random(session.id) # Deterministic seed
+        pacing_setting = os.getenv(PACER_ENV, "medium")
+        pacing_conf = PACING_PRESETS.get(pacing_setting, PACING_PRESETS["medium"])
+        min_shot = max(req.min_shot_duration_ms, pacing_conf["min"])
+        max_shot = min(req.max_shot_duration_ms, pacing_conf["max"])
+        if max_shot < min_shot:
+            max_shot = min_shot
 
-        primary_assets = [t.asset_id for t in session.tracks if t.role == "primary"]
-        other_assets = [t.asset_id for t in session.tracks if t.role != "primary"]
-        
-        if not primary_assets and other_assets:
-            primary_assets = [other_assets[0]] # fallback
-        
+        if not assets_info:
+            return MultiCamAutoCutResult(
+                session_id=session.id,
+                project_id=project_id,
+                sequence_id=prog_seq.id,
+                meta={"pacing_preset": pacing_setting, "score_version": SCORE_VERSION},
+            )
+
+        primary_assets = [aid for aid, info in assets_info.items() if info["role"] == "primary"]
+        other_assets = [aid for aid in assets_info if aid not in primary_assets]
         all_assets = primary_assets + other_assets
 
-        while cursor < total_duration:
-            # Pick Duration
-            shot_dur = rng.randint(req.min_shot_duration_ms, req.max_shot_duration_ms)
-            if cursor + shot_dur > total_duration:
-                shot_dur = total_duration - cursor
-            
-            # Pick Camera
-            if rng.random() < req.prefer_primary_ratio and primary_assets:
-                candidates = primary_assets
+        cursor = 0
+        last_asset_id: Optional[str] = None
+        score_cache: Dict[tuple[str, int], float] = {}
+
+        while cursor < total_duration and all_assets:
+            window_end = cursor + max_shot
+            candidates: List[tuple[float, str]] = []
+            energy_total = 0.0
+
+            for aid in all_assets:
+                info = assets_info.get(aid)
+                if not info:
+                    continue
+                score = self._score_window(aid, cursor, window_end, info, last_asset_id, score_cache)
+                if score <= 0:
+                    continue
+                candidates.append((score, aid))
+                energy_total += score
+
+            if not candidates:
+                cursor += max_shot
+                continue
+
+            avg_energy = energy_total / len(candidates)
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            chosen_id = candidates[0][1]
+
+            duration_span = max_shot - min_shot
+            if duration_span <= 0:
+                base_duration = min_shot
             else:
-                candidates = other_assets if other_assets else primary_assets
-            
-            chosen_id = rng.choice(candidates) if candidates else (all_assets[0] if all_assets else None)
+                energy_factor = min(1.0, avg_energy)
+                base_duration = min_shot + (1.0 - energy_factor) * duration_span
+            pace_mult = {"fast": 0.9, "medium": 1.0, "slow": 1.1}.get(pacing_setting, 1.0)
+            shot_dur = max(min_shot, min(max_shot, int(base_duration * pace_mult)))
 
-            if chosen_id:
-                info = assets_info.get(chosen_id, {"offset": 0})
-                offset = info["offset"]
-                
-                # Clip logic
-                # Timeline start: cursor
-                # Asset (Clip) time: cursor - offset (if offset is shift right)
-                # Ensure we are inside asset bounds
-                asset_time_start = cursor - offset
-                
-                # Check valid bounds
-                # If asset_time_start < 0, this cam hasn't started yet.
-                # If asset_time_start > dur, this cam ended.
-                # Handling holes: For now, just place it. Timeline service handles bounds usually?
-                # We'll just set in_ms/out_ms.
-                
-                in_ms = max(0, asset_time_start) # can't be negative
-                # Adjust timeline placement if we clipped head
-                tl_start = cursor + (in_ms - asset_time_start) 
+            info = assets_info[chosen_id]
+            offset = info["offset"]
+            asset_start = cursor - offset
+            asset_end = asset_start + shot_dur
+            start_clamped = max(0, asset_start)
+            end_clamped = min(info["dur"], asset_end)
+            actual_duration = int(max(1, end_clamped - start_clamped))
+            if actual_duration <= 0:
+                cursor += min_shot
+                continue
 
-                self.timeline_service.create_clip(
-                    Clip(
-                        track_id=prog_track.id,
-                        tenant_id=req.tenant_id,
-                        env=req.env,
-                        asset_id=chosen_id,
-                        start_ms_on_timeline=int(tl_start),
-                        in_ms=int(in_ms),
-                        out_ms=int(in_ms + shot_dur)
-                    )
-                )
+            clip = Clip(
+                track_id=prog_track.id,
+                tenant_id=req.tenant_id,
+                env=req.env,
+                user_id=req.user_id,
+                asset_id=chosen_id,
+                start_ms_on_timeline=int(cursor),
+                in_ms=int(start_clamped),
+                out_ms=int(start_clamped + actual_duration)
+            )
+            self.timeline_service.create_clip(clip)
+            last_asset_id = chosen_id
+            cursor += max(actual_duration, min_shot)
 
-            cursor += shot_dur
-
+        session.meta.setdefault("autocut_history", []).append(
+            {
+                "preset": pacing_setting,
+                "score_version": SCORE_VERSION,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         return MultiCamAutoCutResult(
             session_id=session.id,
             project_id=project_id,
-            sequence_id=prog_seq.id
+            sequence_id=prog_seq.id,
+            meta={"pacing_preset": pacing_setting, "score_version": SCORE_VERSION},
         )
+
+    def _score_window(
+        self,
+        asset_id: str,
+        start: float,
+        end: float,
+        info: Dict[str, Any],
+        last_asset_id: Optional[str],
+        cache: Dict[tuple[str, int], float],
+    ) -> float:
+        key = (asset_id, int(start))
+        if key in cache:
+            return cache[key]
+        sem = self._semantic_energy(info, start, end)
+        vis = self._visual_motion_score(info, start, end)
+        score = 0.6 * sem + 0.4 * vis
+        if info.get("role") == "primary":
+            score += 0.15
+        if asset_id == last_asset_id:
+            score += 0.1
+        score = min(1.0, score)
+        if score <= 0:
+            logger.info("Auto-cut falling back to stub score for %s at %s", asset_id, start)
+        cache[key] = score
+        return score
+
+    def _semantic_energy(self, info: Dict[str, Any], start: float, end: float) -> float:
+        window_len = max(1.0, end - start)
+        coverage = 0.0
+        found = False
+        for art in info.get("artifacts", []):
+            if art.kind != "audio_semantic_timeline":
+                continue
+            events = art.meta.get("events", [])
+            for evt in events:
+                evt_start = evt.get("start_ms")
+                evt_end = evt.get("end_ms")
+                if evt_start is None or evt_end is None:
+                    continue
+                overlap = max(0.0, min(end, evt_end) - max(start, evt_start))
+                if overlap <= 0:
+                    continue
+                found = True
+                coverage += overlap / window_len
+        if not found:
+            logger.debug("No semantic energy for %s between %s-%s", info.get("asset_id"), start, end)
+            return 0.0
+        return min(1.0, coverage)
+
+    def _visual_motion_score(self, info: Dict[str, Any], start: float, end: float) -> float:
+        samples: List[float] = []
+        for art in info.get("artifacts", []):
+            if art.kind not in {"visual_meta", "video_visual_meta"}:
+                continue
+            frames = art.meta.get("frames", [])
+            for frame in frames:
+                ts = frame.get("timestamp_ms")
+                if ts is None or ts < start or ts >= end:
+                    continue
+                samples.append(frame.get("motion_score", frame.get("primary_subject_movement", 0.0)))
+        if not samples:
+            logger.debug("No visual motion for %s between %s-%s", info.get("asset_id"), start, end)
+            return 0.0
+        avg = sum(samples) / len(samples)
+        return min(1.0, avg)
 
 _default_service: Optional[MultiCamService] = None
 

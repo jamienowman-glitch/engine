@@ -7,10 +7,10 @@ from typing import List
 from engines.guardrails.pii_text.schemas import DataPolicyDecision, PiiTextRequest, PiiTextResult
 
 # Simple regexes for common PII
-EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
-PHONE_RE = re.compile(r"(\\+?\\d[\\d\\s().-]{7,}\\d)")
-CARD_RE = re.compile(r"\\b(?:\\d[ -]*?){13,16}\\b")
-POSTAL_RE = re.compile(r"\\b\\d{5}(?:-\\d{4})?\\b")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
+CARD_RE = re.compile(r"\b(?:\d[ -]*?){13,16}\b")
+POSTAL_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b")
 
 
 def _mask(text: str, matches: List[re.Match]) -> str:

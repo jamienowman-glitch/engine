@@ -12,10 +12,21 @@ app.include_router(router)
 
 client = TestClient(app)
 
+svc_instance = None
 def mock_get_service():
-    mock_media = MagicMock()
-    mock_media.get_asset.return_value = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", source_uri="gs://foo")
-    return MultiCamService(media_service=mock_media)
+    global svc_instance
+    print("DEBUG: mock_get_service called")
+    if not svc_instance:
+        print("DEBUG: Creating new svc_instance")
+        mock_media = MagicMock()
+        def get_asset_mock(aid):
+            print(f"DEBUG: get_asset called with '{aid}'")
+            if aid == "a1":
+                 return MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", source_uri="gs://foo")
+            return None
+        mock_media.get_asset.side_effect = get_asset_mock
+        svc_instance = MultiCamService(media_service=mock_media)
+    return svc_instance
 
 app.dependency_overrides[get_multicam_service] = mock_get_service
 

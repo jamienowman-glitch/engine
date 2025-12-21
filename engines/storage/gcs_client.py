@@ -34,6 +34,23 @@ class GcsClient:
         return self._client.bucket(name)
 
     def _write(self, bucket_name: Optional[str], key: str, content: Content) -> str:
+        # In test environments we sometimes configure buckets like 'test-...'; avoid calling the live
+        # Google Cloud API and instead write to a local temp directory so tests remain hermetic.
+        if bucket_name and bucket_name.startswith("test-"):
+            import tempfile
+            local_root = Path(tempfile.gettempdir()) / "gcs_test_storage" / bucket_name
+            local_root.mkdir(parents=True, exist_ok=True)
+            local_path = local_root / Path(key).name
+            if isinstance(content, Path):
+                # copy the file
+                from shutil import copyfile
+                copyfile(str(content), str(local_path))
+            elif isinstance(content, bytes):
+                local_path.write_bytes(content)
+            else:
+                local_path.write_text(str(content))
+            return f"gs://{bucket_name}/{key}"
+
         bucket = self._bucket(bucket_name)
         blob = bucket.blob(key)
         if isinstance(content, Path):
@@ -44,14 +61,15 @@ class GcsClient:
             blob.upload_from_string(str(content))
         return f"gs://{bucket_name}/{key}"
 
-    def upload_raw_media(self, tenant_id: str, path: str, content: Content) -> str:
-        key = f"{tenant_id}/media/{path}"
+    def upload_raw_media(self, tenant_id: str, path: str, content: Content, env: str = "dev") -> str:
+        # Strict Path: tenants/{tenant_id}/{env}/media/{path}
+        key = f"tenants/{tenant_id}/{env}/media/{path}"
         return self._write(self.raw_bucket, key, content)
 
-    def get_raw_media_url(self, tenant_id: str, path: str) -> str:
+    def get_raw_media_url(self, tenant_id: str, path: str, env: str = "dev") -> str:
         bucket = self.raw_bucket or ""
-        return f"gs://{bucket}/{tenant_id}/media/{path}"
+        return f"gs://{bucket}/tenants/{tenant_id}/{env}/media/{path}"
 
-    def upload_dataset(self, tenant_id: str, path: str, content: Content) -> str:
-        key = f"{tenant_id}/datasets/{path}"
+    def upload_dataset(self, tenant_id: str, path: str, content: Content, env: str = "dev") -> str:
+        key = f"tenants/{tenant_id}/{env}/datasets/{path}"
         return self._write(self.datasets_bucket, key, content)

@@ -1,166 +1,103 @@
-"""FastAPI routes for Maybes scratchpad notes."""
+"""FastAPI routes for MAYBES scratchpad."""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from engines.maybes.schemas import MaybesFilters, MaybesNote
-from engines.maybes.service import (
-    CanvasLayoutUpdate,
-    MaybesForbidden,
-    MaybesNotFound,
-    MaybesService,
-)
-from engines.maybes.repository import get_maybes_repository
+from engines.common.identity import RequestContext, get_request_context
+from engines.identity.auth import get_auth_context, require_tenant_membership
+from engines.maybes.schemas import MaybeCreate, MaybeQuery, MaybeUpdate
+from engines.maybes.service import MaybesNotFound, MaybesService
 
-router = APIRouter(prefix="/api/maybes")
-service = MaybesService(repository=get_maybes_repository())
+router = APIRouter(prefix="/maybes")
+service = MaybesService()
 
 
-class MaybesCreateRequest(BaseModel):
-    tenant_id: str = Field(..., pattern=r"^t_[a-z0-9_-]+$")
-    user_id: str
-    body: str
-    title: Optional[str] = None
-    colour_token: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
-    origin_ref: dict = Field(default_factory=dict)
-    episode_id: Optional[str] = None
-    layout_x: float = 0.0
-    layout_y: float = 0.0
-    layout_scale: float = 1.0
+def _parse_tags(tags: Optional[str]) -> list[str] | None:
+    if tags is None:
+        return None
+    parts = [t for t in (tags.split(",") if isinstance(tags, str) else []) if t]
+    return parts or None
 
 
-class MaybesUpdateRequest(BaseModel):
-    title: Optional[str] = None
-    body: Optional[str] = None
-    colour_token: Optional[str] = None
-    tags: Optional[List[str]] = None
-    origin_ref: Optional[dict] = None
-    is_pinned: Optional[bool] = None
-    is_archived: Optional[bool] = None
-    layout_x: Optional[float] = None
-    layout_y: Optional[float] = None
-    layout_scale: Optional[float] = None
-    episode_id: Optional[str] = None
-    nexus_doc_id: Optional[str] = None
+@router.post("/items")
+def create_maybe(req: MaybeCreate, context: RequestContext = Depends(get_request_context), auth=Depends(get_auth_context)):
+    require_tenant_membership(auth, context.tenant_id)
+    try:
+        return service.create_item(req, context)
+    except MaybesNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
-class CanvasLayoutEntry(BaseModel):
-    maybes_id: str
-    layout_x: float
-    layout_y: float
-    layout_scale: float
-
-
-class CanvasLayoutRequest(BaseModel):
-    tenant_id: str = Field(..., pattern=r"^t_[a-z0-9_-]+$")
-    user_id: str
-    layouts: List[CanvasLayoutEntry]
-
-
-@router.get("")
+@router.get("/items")
 def list_maybes(
-    tenant_id: str = Query(..., pattern=r"^t_[a-z0-9_-]+$"),
-    user_id: str = Query(...),
-    tags: Optional[str] = None,
-    search: Optional[str] = None,
-    created_after: Optional[datetime] = None,
-    created_before: Optional[datetime] = None,
-    origin_surface: Optional[str] = None,
-    origin_app: Optional[str] = None,
-    origin_thread_id: Optional[str] = None,
-    origin_message_id: Optional[str] = None,
-    include_archived: bool = False,
-) -> dict:
-    origin_ref = {
-        k: v
-        for k, v in {
-            "surface": origin_surface,
-            "app": origin_app,
-            "thread_id": origin_thread_id,
-            "message_id": origin_message_id,
-        }.items()
-        if v is not None
-    }
-    filters = MaybesFilters(
-        tags=[t for t in (tags.split(",") if tags else []) if t],
-        search=search,
-        created_after=created_after,
-        created_before=created_before,
-        origin_ref=origin_ref,
-        include_archived=include_archived,
+    space: Optional[str] = None,
+    user_id: Optional[str] = None,
+    tags_any: Optional[str] = None,
+    search_text: Optional[str] = None,
+    pinned_only: bool = False,
+    archived: Optional[bool] = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
+    query = MaybeQuery(
+        tenant_id=context.tenant_id,
+        env=context.env,
+        space=space,
+        user_id=user_id or context.user_id,
+        tags_any=_parse_tags(tags_any),
+        search_text=search_text,
+        pinned_only=pinned_only,
+        archived=archived,
+        limit=limit,
+        offset=offset,
     )
-    notes = service.list_notes(tenant_id=tenant_id, user_id=user_id, filters=filters)
-    return {"items": [n.model_dump() for n in notes]}
+    items = service.list_items(query)
+    return {"items": items}
 
 
-@router.post("", response_model=MaybesNote)
-def create_maybes(req: MaybesCreateRequest) -> MaybesNote:
-    return service.create_note(
-        tenant_id=req.tenant_id,
-        user_id=req.user_id,
-        body=req.body,
-        title=req.title,
-        colour_token=req.colour_token,
-        tags=req.tags,
-        origin_ref=req.origin_ref,
-        episode_id=req.episode_id,
-        layout_x=req.layout_x,
-        layout_y=req.layout_y,
-        layout_scale=req.layout_scale,
-    )
-
-
-@router.patch("/{maybes_id}", response_model=MaybesNote)
-def update_maybes(maybes_id: str, req: MaybesUpdateRequest, tenant_id: str, user_id: str) -> MaybesNote:
+@router.get("/items/{item_id}")
+def get_maybe(
+    item_id: str,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
     try:
-        return service.update_note(maybes_id, tenant_id, user_id, req.model_dump(exclude_none=True))
+        return service.get_item(context, item_id)
     except MaybesNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    except MaybesForbidden as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
 
 
-@router.delete("/{maybes_id}")
-def archive_maybes(maybes_id: str, tenant_id: str, user_id: str) -> dict:
+@router.patch("/items/{item_id}")
+def update_maybe(
+    item_id: str,
+    req: MaybeUpdate,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
     try:
-        note = service.archive_note(maybes_id, tenant_id, user_id)
-        return {"status": "archived", "maybes_id": note.maybes_id}
+        return {"item": service.update_item(context, item_id, req)}
     except MaybesNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    except MaybesForbidden as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
 
 
-@router.get("/canvas-layout")
-def get_canvas_layout(tenant_id: str, user_id: str) -> dict:
-    layouts = service.get_canvas_layout(tenant_id=tenant_id, user_id=user_id)
-    return {"layouts": layouts}
-
-
-@router.post("/canvas-layout")
-def save_canvas_layout(req: CanvasLayoutRequest) -> dict:
-    updates = [
-        CanvasLayoutUpdate(
-            maybes_id=entry.maybes_id,
-            layout_x=entry.layout_x,
-            layout_y=entry.layout_y,
-            layout_scale=entry.layout_scale,
-        )
-        for entry in req.layouts
-    ]
+@router.delete("/items/{item_id}")
+def delete_maybe(
+    item_id: str,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
     try:
-        layout = service.save_canvas_layout(
-            tenant_id=req.tenant_id,
-            user_id=req.user_id,
-            layouts=updates,
-        )
-        return {"layouts": layout}
+        service.delete_item(context, item_id)
+        return {"status": "deleted"}
     except MaybesNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    except MaybesForbidden as exc:
-        raise HTTPException(status_code=403, detail=str(exc))

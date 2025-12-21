@@ -1,0 +1,42 @@
+{
+  "Actual50": {
+    "enabled": true,
+    "operator": "GreaterThan",
+    "threshold": 50,
+    "thresholdType": "Actual",
+    "contactEmails": ["jamienowman@gmail.com"],
+    "locale": "en-us"
+  },
+  "Actual80": {
+    "enabled": true,
+    "operator": "GreaterThan",
+    "threshold": 80,
+    "thresholdType": "Actual",
+    "contactEmails": ["jamienowman@gmail.com"],
+    "locale": "en-us"
+  },
+  "Actual90": {
+    "enabled": true,
+    "operator": "GreaterThan",
+    "threshold": 90,
+    "thresholdType": "Actual",
+    "contactEmails": ["jamienowman@gmail.com"],
+    "locale": "en-us"
+  },
+  "Actual100": {
+    "enabled": true,
+    "operator": "GreaterThanOrEqualTo",
+    "threshold": 100,
+    "thresholdType": "Actual",
+    "contactEmails": ["jamienowman@gmail.com"],
+    "locale": "en-us"
+  },
+  "Forecast90": {
+    "enabled": true,
+    "operator": "GreaterThan",
+    "threshold": 90,
+    "thresholdType": "Forecasted",
+    "contactEmails": ["jamienowman@gmail.com"],
+    "locale": "en-us"
+  }
+}

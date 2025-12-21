@@ -1,62 +1,97 @@
-"""Firestore-backed repository for Maybes notes."""
+"""Firestore-backed MAYBES repository."""
 from __future__ import annotations
 
-from typing import Any, Iterable, List
-
-try:
-    from google.cloud import firestore  # type: ignore
-except Exception:  # pragma: no cover - library may be absent locally
-    firestore = None
+from typing import List, Optional
 
 from engines.config import runtime_config
-from engines.maybes.schemas import MaybesNote
-from engines.maybes.repository import MaybesRepository
+from engines.maybes.schemas import MaybeItem, MaybeQuery, MaybeUpdate
+
+try:  # pragma: no cover - optional dependency
+    from google.cloud import firestore  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    firestore = None
 
 
-class FirestoreMaybesRepository(MaybesRepository):
-    def __init__(self, client: Any = None) -> None:
+def _tenant_env_key(tenant_id: str, env: str) -> str:
+    return f"{tenant_id}__{env}"
+
+
+class FirestoreMaybesRepository:
+    def __init__(self, client: Optional[object] = None) -> None:  # pragma: no cover - optional dependency
         if firestore is None:
             raise RuntimeError("google-cloud-firestore not installed")
-        self._client = client or self._default_client()
-        cfg = runtime_config.config_snapshot()
-        self.tenant_id = cfg.get("tenant_id") or ""
-        self.env = cfg.get("env") or "dev"
-
-    def _default_client(self):
         project = runtime_config.get_firestore_project()
         if not project:
-            raise RuntimeError("GCP_PROJECT_ID/GCP_PROJECT is required for FirestoreMaybesRepository")
-        return firestore.Client(project=project)  # type: ignore[arg-type]
+            raise RuntimeError("GCP project is required for Firestore MAYBES repo")
+        self._client = client or firestore.Client(project=project)  # type: ignore[arg-type]
+        self._root_collection = "maybes"
 
-    def _collection(self):
-        suffix = self.tenant_id or "t_unknown"
-        return self._client.collection(f"maybes_notes_{suffix}")
+    def _collection(self, tenant_id: str, env: str):
+        key = _tenant_env_key(tenant_id, env)
+        return self._client.collection(self._root_collection).document(key).collection("items")
 
-    def save(self, note: MaybesNote) -> MaybesNote:
-        payload = note.model_dump()
-        payload["tenant_id"] = note.tenant_id or self.tenant_id
-        payload["env"] = self.env
-        self._collection().document(note.maybes_id).set(payload)
-        return note
+    def create(self, item: MaybeItem) -> MaybeItem:
+        col = self._collection(item.tenant_id, item.env)
+        col.document(item.id).set(item.model_dump())
+        return item
 
-    def get(self, maybes_id: str) -> MaybesNote | None:
-        snap = self._collection().document(maybes_id).get()
+    def get(self, tenant_id: str, env: str, item_id: str) -> MaybeItem | None:
+        snap = self._collection(tenant_id, env).document(item_id).get()
         if not snap or not snap.exists:
             return None
         data = snap.to_dict() or {}
-        return MaybesNote(**data)
+        if data.get("tenant_id") != tenant_id or data.get("env") != env:
+            return None
+        return MaybeItem(**data)
 
-    def list_for_user(self, tenant_id: str, user_id: str) -> Iterable[MaybesNote]:
-        query = (
-            self._collection()
-            .where("tenant_id", "==", tenant_id)
-            .where("user_id", "==", user_id)
-        )
-        docs: List[MaybesNote] = []
-        for snap in query.stream():
+    def list(self, query: MaybeQuery) -> List[MaybeItem]:
+        col = self._collection(query.tenant_id, query.env)
+        q = col
+        if query.space:
+            q = q.where("space", "==", query.space)
+        if query.user_id:
+            q = q.where("user_id", "==", query.user_id)
+        if query.archived is not None:
+            q = q.where("archived", "==", query.archived)
+        docs = q.stream()
+        items: List[MaybeItem] = []
+        for snap in docs:
             data = snap.to_dict() or {}
-            try:
-                docs.append(MaybesNote(**data))
-            except Exception:
+            if query.pinned_only and not data.get("pinned"):
                 continue
-        return docs
+            if query.tags_any:
+                tags = set(data.get("tags") or [])
+                if not tags.intersection(set(query.tags_any)):
+                    continue
+            if query.search_text:
+                haystack = f"{data.get('title','')} {data.get('body','')}".lower()
+                if query.search_text.lower() not in haystack:
+                    continue
+            items.append(MaybeItem(**data))
+        items.sort(key=lambda i: i.created_at, reverse=True)
+        return items[query.offset : query.offset + query.limit]
+
+    def update(self, tenant_id: str, env: str, item_id: str, patch: MaybeUpdate) -> MaybeItem | None:
+        item = self.get(tenant_id, env, item_id)
+        if not item:
+            return None
+        if patch.title is not None:
+            item.title = patch.title
+        if patch.body is not None:
+            item.body = patch.body
+        if patch.tags is not None:
+            item.tags = list(patch.tags)
+        if patch.pinned is not None:
+            item.pinned = patch.pinned
+        if patch.archived is not None:
+            item.archived = patch.archived
+        self._collection(tenant_id, env).document(item_id).set(item.model_dump())
+        return item
+
+    def delete(self, tenant_id: str, env: str, item_id: str) -> bool:
+        doc = self._collection(tenant_id, env).document(item_id)
+        snap = doc.get()
+        if not snap or not snap.exists:
+            return False
+        doc.delete()
+        return True

@@ -7,7 +7,7 @@ from engines.media_v2.models import MediaAsset, Artifact
 def test_stub_backend():
     # Default behavior
     mock_media = MagicMock()
-    mock_asset = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=10000)
+    mock_asset = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=10000, source_uri="/tmp/fake.mp4")
     mock_media.get_asset.return_value = mock_asset
     
     # Mock register artifact to return something with ID
@@ -28,7 +28,7 @@ def test_cpu_face_backend():
     # ENV override
     with patch.dict(os.environ, {"VIDEO_REGION_BACKEND": "cpu_face"}):
         mock_media = MagicMock()
-        mock_asset = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=10000)
+        mock_asset = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=10000, source_uri="/tmp/fake.mp4")
         mock_media.get_asset.return_value = mock_asset
         
         def fake_register(req):

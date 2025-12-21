@@ -7,13 +7,13 @@ from engines.nexus.vector_explorer.vector_store import ExplorerVectorStore, Expl
 
 
 class FakeEmbedder(EmbeddingAdapter):
-    def embed_text(self, text: str, model_id=None) -> EmbeddingResult:
+    def embed_text(self, text: str, model_id=None, context=None) -> EmbeddingResult:
         return EmbeddingResult(vector=[0.5, 0.5], model_id="text-model")
 
-    def embed_image(self, image_uri: str, model_id=None) -> EmbeddingResult:  # pragma: no cover - unused
+    def embed_image(self, image_uri: str, model_id=None, context=None) -> EmbeddingResult:  # pragma: no cover - unused
         return EmbeddingResult(vector=[1.0, 0.0], model_id="image-model")
 
-    def embed_image_bytes(self, image_bytes: bytes, model_id=None) -> EmbeddingResult:
+    def embed_image_bytes(self, image_bytes: bytes, model_id=None, context=None) -> EmbeddingResult:
         return EmbeddingResult(vector=[1.0, 0.0], model_id="image-model")
 
 

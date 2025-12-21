@@ -1,23 +1,55 @@
+"""Unit tests ensuring a ConnectionManager event delivery behaves as expected."""
+
+from __future__ import annotations
+
+import asyncio
 import json
+from dataclasses import dataclass
 
-from fastapi.testclient import TestClient
+from engines.chat.service.ws_transport import ConnectionManager
+from engines.realtime.contracts import (
+    ActorType,
+    EventMeta,
+    EventPriority,
+    PersistPolicy,
+    RoutingKeys,
+    StreamEvent,
+)
 
-from engines.chat.service.server import create_app
+
+@dataclass
+class _FakeWebSocket:
+    sent: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        self.sent = []
+
+    async def send_text(self, payload: str) -> None:
+        self.sent.append(payload)
 
 
-def test_websocket_broadcast() -> None:
-    app = create_app()
-    client = TestClient(app)
+def _build_event() -> StreamEvent:
+    return StreamEvent(
+        type="presence_state",
+        routing=RoutingKeys(
+            tenant_id="t_demo",
+            env="dev",
+            thread_id="thread-ws-clean",
+            actor_id="u1",
+            actor_type=ActorType.HUMAN,
+        ),
+        data={"status": "online"},
+        trace_id="trace-ws-1",
+        meta=EventMeta(priority=EventPriority.INFO, persist=PersistPolicy.NEVER),
+    )
 
-    # create a thread via HTTP
-    resp = client.post("/chat/threads", json={"participants": [{"id": "u1"}]})
-    thread_id = resp.json()["id"]
 
-    with client.websocket_connect(f"/ws/chat/{thread_id}") as ws1, client.websocket_connect(
-        f"/ws/chat/{thread_id}"
-    ) as ws2:
-        ws1.send_json({"type": "message", "sender_id": "u1", "text": "hi ws"})
-        data = ws2.receive_text()
-        payload = json.loads(data)
-        assert payload["type"] == "message"
-        assert payload["data"]["text"] == "hi ws"
+def test_connection_manager_broadcasts_event() -> None:
+    manager = ConnectionManager()
+    ws = _FakeWebSocket()
+    manager.active.setdefault("thread-ws-clean", []).append((ws, "u1"))
+    asyncio.run(manager.broadcast_event("thread-ws-clean", _build_event()))
+    assert ws.sent
+    payload = json.loads(ws.sent[0])
+    assert payload["trace_id"] == "trace-ws-1"
+    assert payload["routing"]["tenant_id"] == "t_demo"

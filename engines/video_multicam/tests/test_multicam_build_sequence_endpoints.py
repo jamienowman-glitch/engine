@@ -13,7 +13,7 @@ client = TestClient(app)
 
 def test_build_sequence_endpoint():
     mock_media = MagicMock()
-    mock_media.get_asset.return_value = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=1000, source_uri="gs://")
+    mock_media.get_asset.side_effect = lambda aid: MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=1000, source_uri="gs://") if aid == "a1" else None
     
     mock_timeline = MagicMock()
     mock_timeline.create_project.return_value = VideoProject(id="p1", tenant_id="t1", env="dev", title="P")

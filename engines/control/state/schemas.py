@@ -19,7 +19,7 @@ class BudgetCorridor(BaseModel):
 
 
 class TemperatureState(BaseModel):
-    tenantId: str = Field(..., regex=r"^t_[a-z0-9_-]+$")
+    tenantId: str = Field(..., pattern=r"^t_[a-z0-9_-]+$")
     env: str
     band: str = "neutral"
     kpi_corridors: List[KpiCorridor] = Field(default_factory=list)

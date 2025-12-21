@@ -11,6 +11,8 @@ except Exception:  # pragma: no cover
     aiplatform = None
     Namespace = None
 
+from engines.common.identity import RequestContext
+from engines.common.selecta import SelectaResolver, get_selecta_resolver
 from engines.config import runtime_config
 
 
@@ -64,65 +66,42 @@ class VertexExplorerVectorStore(ExplorerVectorStore):
     def __init__(
         self,
         endpoint: Any = None,
-        project: Optional[str] = None,
-        location: Optional[str] = None,
-        deployed_index_id: Optional[str] = None,
-        index_endpoint_id: Optional[str] = None,
         timeout_seconds: float = 10.0,
+        selecta: Optional[SelectaResolver] = None,
     ) -> None:
-        self.project = project or runtime_config.get_vector_project() or runtime_config.get_firestore_project()
-        self.location = location or runtime_config.get_region() or "us-central1"
-        self.deployed_index_id = deployed_index_id
-        self.index_endpoint_id = index_endpoint_id or runtime_config.get_vector_endpoint_id()
         self._timeout = timeout_seconds
         self._index = None
-        self._endpoint = endpoint or self._init_endpoint()
-        self._index = self._init_index()
-        
-        # Auto-derive deployed_index_id if not explicitly set
-        if not self.deployed_index_id:
-            self.deployed_index_id = self._derive_deployed_index_id()
-        
-        # Fail fast if we can't find a deployed index to query against
-        if not self.deployed_index_id:
-            raise VectorStoreConfigError(
-                "Deployed index id is required for queries. "
-                "Set VECTOR_ENDPOINT_ID to an endpoint that has a deployed index, "
-                "or pass deployed_index_id explicitely."
-            )
+        self._endpoint = endpoint
+        self._selecta = selecta or get_selecta_resolver()
+        self.project = None
+        self.location = None
+        self.deployed_index_id = None
+        self.index_endpoint_id = None
 
-    def _init_endpoint(self):
+    def _init_endpoint(self, cfg: RequestContext):
         if aiplatform is None:
             raise VectorStoreConfigError("google-cloud-aiplatform not installed for Vertex vector search")
         if not self.project or not self.index_endpoint_id:
             raise VectorStoreConfigError("VECTOR_PROJECT_ID/GCP_PROJECT_ID and VECTOR_ENDPOINT_ID are required")
-        
         aiplatform.init(project=self.project, location=self.location)
-        
-        # Normalize endpoint path
         endpoint_id = str(self.index_endpoint_id)
         if endpoint_id.startswith("projects/"):
-             endpoint_name = endpoint_id
+            endpoint_name = endpoint_id
         else:
-             endpoint_name = f"projects/{self.project}/locations/{self.location}/indexEndpoints/{endpoint_id}"
-            
+            endpoint_name = f"projects/{self.project}/locations/{self.location}/indexEndpoints/{endpoint_id}"
         return aiplatform.MatchingEngineIndexEndpoint(index_endpoint_name=endpoint_name)
 
     def _init_index(self):
         if aiplatform is None:
             raise VectorStoreConfigError("google-cloud-aiplatform not installed for Vertex vector search")
-        
-        index_id = runtime_config.get_vector_index_id()
+        index_id = getattr(self, "index_id", None) or runtime_config.get_vector_index_id()
         if not self.project or not index_id:
             raise VectorStoreConfigError("VECTOR_INDEX_ID (index resource or id) is required")
-            
-        # Normalize index path
         idx_id_str = str(index_id)
         if idx_id_str.startswith("projects/"):
             index_name = idx_id_str
         else:
             index_name = f"projects/{self.project}/locations/{self.location}/indexes/{idx_id_str}"
-            
         return aiplatform.MatchingEngineIndex(index_name=index_name)
 
     def _derive_deployed_index_id(self) -> Optional[str]:
@@ -130,7 +109,6 @@ class VertexExplorerVectorStore(ExplorerVectorStore):
             deployed = getattr(self._endpoint, "deployed_indexes", None) or []
             first = deployed[0] if deployed else None
             if first:
-                # The object usually has an 'id' or 'deployed_index_id' attribute
                 return getattr(first, "id", None) or getattr(first, "deployed_index_id", None)
         except Exception:
             return None
@@ -145,6 +123,7 @@ class VertexExplorerVectorStore(ExplorerVectorStore):
         space: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
+        self._ensure_backend(RequestContext(request_id="selecta", tenant_id=tenant_id, env=env))
         # Vertex expect list of IndexDatapoint objects or dicts
         
         datapoint = {
@@ -175,6 +154,7 @@ class VertexExplorerVectorStore(ExplorerVectorStore):
         space: str,
         top_k: int = 10,
     ) -> List[ExplorerVectorHit]:
+        self._ensure_backend(RequestContext(request_id="selecta", tenant_id=tenant_id, env=env))
         # Refactor: Pass simple queries + separate filter to avoid Proto coercion bugs
         queries = [list(vector)]
         
@@ -229,3 +209,18 @@ class VertexExplorerVectorStore(ExplorerVectorStore):
         top_k: int = 10,
     ) -> List[ExplorerVectorHit]:
         raise NotImplementedError("query_by_datapoint_id not explicitly supported in this strict adapter yet.")
+
+    def _ensure_backend(self, ctx: RequestContext) -> None:
+        if getattr(self, "_endpoint", None) and getattr(self, "_index", None):
+            return
+        vs_cfg = self._selecta.vector_store_config(ctx)
+        self.project = vs_cfg.project or runtime_config.get_firestore_project()
+        self.location = vs_cfg.region or runtime_config.get_env_region_fallback()
+        self.index_endpoint_id = vs_cfg.endpoint_id
+        self.index_id = vs_cfg.index_id
+        self._endpoint = self._endpoint or self._init_endpoint(ctx)
+        self._index = self._init_index()
+        if not self.deployed_index_id:
+            self.deployed_index_id = self._derive_deployed_index_id()
+        if not self.deployed_index_id:
+            raise VectorStoreConfigError("Deployed index id is required for queries")

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Protocol, Tuple
 
 from engines.media_v2.models import (
     ArtifactCreateRequest,
@@ -15,7 +15,6 @@ from engines.media_v2.models import (
     MediaKind,
     MediaUploadRequest,
 )
-from engines.storage.gcs_client import GcsClient
 from engines.config import runtime_config
 
 try:
@@ -44,6 +43,61 @@ class MediaRepository:
 
     def get_artifact(self, artifact_id: str) -> Optional[DerivedArtifact]:
         raise NotImplementedError
+
+
+class MediaStorage(Protocol):
+    """Abstract media blob storage."""
+
+    def upload_bytes(self, tenant_id: str, env: str, asset_id: str, filename: str, content: bytes) -> str:
+        raise NotImplementedError
+
+
+class S3MediaStorage:
+    """S3-backed media storage with strict tenant/env prefixing."""
+
+    def __init__(self, bucket_name: Optional[str] = None, client: Optional[object] = None) -> None:
+        self.bucket_name = bucket_name or runtime_config.get_raw_bucket()
+        if not self.bucket_name:
+            raise RuntimeError("RAW_BUCKET config missing for media storage")
+        if client is not None:
+            self.client = client
+        else:
+            try:
+                import boto3  # type: ignore
+            except Exception as exc:  # pragma: no cover - import error path
+                raise RuntimeError("boto3 is required for S3 media storage") from exc
+            self.client = boto3.client("s3")
+
+    def _key(self, tenant_id: str, env: str, asset_id: str, filename: str) -> str:
+        safe_name = Path(filename).name or "upload.bin"
+        return f"tenants/{tenant_id}/{env}/media_v2/{asset_id}/{safe_name}"
+
+    def upload_bytes(self, tenant_id: str, env: str, asset_id: str, filename: str, content: bytes) -> str:
+        key = self._key(tenant_id, env, asset_id, filename)
+        try:
+            self.client.put_object(Bucket=self.bucket_name, Key=key, Body=content)
+            return f"s3://{self.bucket_name}/{key}"
+        except Exception as exc:  # pragma: no cover - network error path
+            raise RuntimeError(f"S3 upload failed: {exc}") from exc
+
+
+class LocalMediaStorage:
+    """Local tmp fallback to keep tests/dev working without S3."""
+
+    def upload_bytes(self, tenant_id: str, env: str, asset_id: str, filename: str, content: bytes) -> str:
+        safe_name = Path(filename).name or "upload.bin"
+        dest = (
+            Path(tempfile.gettempdir())
+            / "media_v2"
+            / "tenants"
+            / tenant_id
+            / env
+            / asset_id
+        )
+        dest.mkdir(parents=True, exist_ok=True)
+        path = dest / safe_name
+        path.write_bytes(content)
+        return str(path)
 
 
 class InMemoryMediaRepository(MediaRepository):
@@ -200,42 +254,31 @@ def _probe_media(path: Path) -> Tuple[Optional[float], Optional[float], Optional
 
 
 class MediaService:
-    def __init__(self, repo: Optional[MediaRepository] = None, gcs: Optional[GcsClient] = None) -> None:
+    def __init__(self, repo: Optional[MediaRepository] = None, storage: Optional[MediaStorage] = None) -> None:
         self.repo = repo or self._default_repo()
-        try:
-            self.gcs = gcs or GcsClient()
-        except Exception:
-            self.gcs = None
+        self.storage = storage or self._default_storage()
 
     def _default_repo(self) -> MediaRepository:
-        try:
-            return FirestoreMediaRepository()
-        except Exception:
-            return InMemoryMediaRepository()
+        return FirestoreMediaRepository()
 
-    def _store_upload(self, tenant_id: str, filename: str, content: bytes) -> str:
-        """Store bytes to GCS, falling back to tmp file path."""
-        try:
-            if self.gcs:
-                return self.gcs.upload_raw_media(tenant_id, f"{uuid.uuid4().hex}/{filename}", content)
-        except Exception:
-            # fall back to temp file path
-            tmpdir = Path(tempfile.gettempdir()) / "media_v2"
-            tmpdir.mkdir(parents=True, exist_ok=True)
-            dest = tmpdir / f"{uuid.uuid4().hex}_{filename}"
-            dest.write_bytes(content)
-            return str(dest)
-        tmpdir = Path(tempfile.gettempdir()) / "media_v2"
-        tmpdir.mkdir(parents=True, exist_ok=True)
-        dest = tmpdir / f"{uuid.uuid4().hex}_{filename}"
-        dest.write_bytes(content)
-        return str(dest)
+    def _default_storage(self) -> MediaStorage:
+        return S3MediaStorage()
 
-    def _build_asset(self, ctx: MediaUploadRequest, uri: str, probe_path: Optional[Path] = None) -> MediaAsset:
+    def _store_upload(self, req: MediaUploadRequest, asset_id: str, filename: str, content: bytes) -> str:
+        """Store bytes to S3. Raises if not configured."""
+        try:
+            return self.storage.upload_bytes(req.tenant_id, req.env, asset_id, filename, content)
+        except Exception as exc:
+            raise RuntimeError("media storage unavailable: " + str(exc)) from exc
+
+
+
+    def _build_asset(self, ctx: MediaUploadRequest, uri: str, probe_path: Optional[Path] = None, asset_id: Optional[str] = None) -> MediaAsset:
         duration_ms, fps, channels, sample_rate, codec, size_bytes = (None, None, None, None, None, None)
         if probe_path:
             duration_ms, fps, channels, sample_rate, codec, size_bytes = _probe_media(probe_path)
         asset = MediaAsset(
+            id=asset_id or uuid.uuid4().hex,
             tenant_id=ctx.tenant_id,
             env=ctx.env,
             user_id=ctx.user_id,
@@ -257,14 +300,15 @@ class MediaService:
         return self._build_asset(req, req.source_uri, None)
 
     def register_upload(self, req: MediaUploadRequest, filename: str, content: bytes) -> MediaAsset:
-        uri = self._store_upload(req.tenant_id, filename, content)
+        asset_id = uuid.uuid4().hex
+        uri = self._store_upload(req, asset_id, filename, content)
         tmp_path = None
         try:
             tmp_path = Path(tempfile.gettempdir()) / f"probe_{uuid.uuid4().hex}"
             tmp_path.write_bytes(content)
         except Exception:
             tmp_path = None
-        return self._build_asset(req, uri, tmp_path)
+        return self._build_asset(req, uri, tmp_path, asset_id)
 
     def list_assets(self, tenant_id: str, kind: Optional[MediaKind] = None, tag: Optional[str] = None, source_ref: Optional[str] = None) -> List[MediaAsset]:
         return self.repo.list_assets(tenant_id=tenant_id, kind=kind, tag=tag, source_ref=source_ref)
@@ -306,11 +350,7 @@ _default_service: Optional[MediaService] = None
 def get_media_service() -> MediaService:
     global _default_service
     if _default_service is None:
-        try:
-            gcs = GcsClient()
-        except Exception:
-            gcs = None
-        _default_service = MediaService(gcs=gcs)
+        _default_service = MediaService()
     return _default_service
 
 

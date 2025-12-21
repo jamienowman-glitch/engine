@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+from typing import List, Optional
+
+from fastapi import APIRouter, Body, HTTPException
+
+from engines.video_timeline.models import Clip, FilterStack, Sequence, Track, Transition, VideoProject, ParameterAutomation
+from engines.video_timeline.service import get_timeline_service
+
+router = APIRouter(prefix="/video", tags=["video_timeline"])
+
+
+def _not_found(name: str):
+    raise HTTPException(status_code=404, detail=f"{name} not found")
+
+
+# Projects
+@router.post("/projects", response_model=VideoProject)
+def create_project(project: VideoProject):
+    return get_timeline_service().create_project(project)
+
+
+@router.get("/projects", response_model=List[VideoProject])
+def list_projects(tenant_id: str):
+    return get_timeline_service().list_projects(tenant_id)
+
+
+@router.get("/projects/{project_id}", response_model=VideoProject)
+def get_project(project_id: str):
+    proj = get_timeline_service().get_project(project_id)
+    if not proj:
+        _not_found("project")
+    return proj
+
+
+@router.patch("/projects/{project_id}", response_model=VideoProject)
+def update_project(project_id: str, project: VideoProject):
+    if project.id != project_id:
+        raise HTTPException(status_code=400, detail="project id mismatch")
+    return get_timeline_service().update_project(project)
+
+
+# Sequences
+@router.post("/projects/{project_id}/sequences", response_model=Sequence)
+def create_sequence(project_id: str, sequence: Sequence):
+    if sequence.project_id != project_id:
+        raise HTTPException(status_code=400, detail="project_id mismatch")
+    return get_timeline_service().create_sequence(sequence)
+
+
+@router.get("/projects/{project_id}/sequences", response_model=List[Sequence])
+def list_sequences(project_id: str):
+    return get_timeline_service().list_sequences_for_project(project_id)
+
+
+@router.get("/sequences/{sequence_id}", response_model=Sequence)
+def get_sequence(sequence_id: str):
+    seq = get_timeline_service().get_sequence(sequence_id)
+    if not seq:
+        _not_found("sequence")
+    return seq
+
+
+@router.patch("/sequences/{sequence_id}", response_model=Sequence)
+def update_sequence(sequence_id: str, sequence: Sequence):
+    if sequence.id != sequence_id:
+        raise HTTPException(status_code=400, detail="sequence id mismatch")
+    return get_timeline_service().update_sequence(sequence)
+
+
+# Tracks
+@router.post("/sequences/{sequence_id}/tracks", response_model=Track)
+def create_track(sequence_id: str, track: Track):
+    if track.sequence_id != sequence_id:
+        raise HTTPException(status_code=400, detail="sequence_id mismatch")
+    return get_timeline_service().create_track(track)
+
+
+@router.get("/sequences/{sequence_id}/tracks", response_model=List[Track])
+def list_tracks(sequence_id: str):
+    return get_timeline_service().list_tracks_for_sequence(sequence_id)
+
+
+@router.get("/tracks/{track_id}", response_model=Track)
+def get_track(track_id: str):
+    track = get_timeline_service().get_track(track_id)
+    if not track:
+        _not_found("track")
+    return track
+
+
+@router.patch("/tracks/{track_id}", response_model=Track)
+def update_track(track_id: str, track: Track):
+    if track.id != track_id:
+        raise HTTPException(status_code=400, detail="track id mismatch")
+    return get_timeline_service().update_track(track)
+
+
+# Clips
+@router.post("/tracks/{track_id}/clips", response_model=Clip)
+def create_clip(track_id: str, clip: Clip):
+    if clip.track_id != track_id:
+        raise HTTPException(status_code=400, detail="track_id mismatch")
+    return get_timeline_service().create_clip(clip)
+
+
+@router.get("/tracks/{track_id}/clips", response_model=List[Clip])
+def list_clips(track_id: str):
+    return get_timeline_service().list_clips_for_track(track_id)
+
+
+@router.get("/clips/{clip_id}", response_model=Clip)
+def get_clip(clip_id: str):
+    clip = get_timeline_service().get_clip(clip_id)
+    if not clip:
+        _not_found("clip")
+    return clip
+
+
+@router.patch("/clips/{clip_id}", response_model=Clip)
+def update_clip(clip_id: str, clip: Clip):
+    if clip.id != clip_id:
+        raise HTTPException(status_code=400, detail="clip id mismatch")
+    return get_timeline_service().update_clip(clip)
+
+
+@router.delete("/clips/{clip_id}")
+def delete_clip(clip_id: str):
+    get_timeline_service().delete_clip(clip_id)
+    return {"status": "deleted", "id": clip_id}
+
+
+# Transitions
+@router.post("/sequences/{sequence_id}/transitions", response_model=Transition)
+def create_transition(sequence_id: str, transition: Transition):
+    if transition.sequence_id != sequence_id:
+        raise HTTPException(status_code=400, detail="sequence_id mismatch")
+    return get_timeline_service().create_transition(transition)
+
+
+@router.get("/sequences/{sequence_id}/transitions", response_model=List[Transition])
+def list_transitions(sequence_id: str):
+    return get_timeline_service().list_transitions_for_sequence(sequence_id)
+
+
+@router.patch("/transitions/{transition_id}", response_model=Transition)
+def update_transition(transition_id: str, transition: Transition):
+    if transition.id != transition_id:
+        raise HTTPException(status_code=400, detail="transition id mismatch")
+    return get_timeline_service().update_transition(transition)
+
+
+@router.delete("/transitions/{transition_id}")
+def delete_transition(transition_id: str):
+    get_timeline_service().delete_transition(transition_id)
+    return {"status": "deleted", "id": transition_id}
+
+
+# Filter stacks
+@router.post("/filter-stacks/{target_type}/{target_id}", response_model=FilterStack)
+def create_filter_stack(target_type: str, target_id: str, stack: FilterStack):
+    if stack.target_type != target_type or stack.target_id != target_id:
+        raise HTTPException(status_code=400, detail="target mismatch")
+    return get_timeline_service().create_filter_stack(stack)
+
+
+@router.get("/filter-stacks/{target_type}/{target_id}", response_model=FilterStack)
+def get_filter_stack_for_target(target_type: str, target_id: str):
+    stack = get_timeline_service().get_filter_stack_for_target(target_type, target_id)
+    if not stack:
+        _not_found("filter_stack")
+    return stack
+
+
+@router.patch("/filter-stacks/{stack_id}", response_model=FilterStack)
+def update_filter_stack(stack_id: str, stack: FilterStack):
+    if stack.id != stack_id:
+        raise HTTPException(status_code=400, detail="stack id mismatch")
+    return get_timeline_service().update_filter_stack(stack)
+
+
+@router.delete("/filter-stacks/{stack_id}")
+def delete_filter_stack(stack_id: str):
+    get_timeline_service().delete_filter_stack(stack_id)
+    return {"status": "deleted", "id": stack_id}
+
+
+# Automation
+@router.post("/automation", response_model=ParameterAutomation)
+def create_automation(automation: ParameterAutomation):
+    return get_timeline_service().create_automation(automation)
+
+
+@router.get("/automation/{automation_id}", response_model=ParameterAutomation)
+def get_automation(automation_id: str):
+    res = get_timeline_service().get_automation(automation_id)
+    if not res:
+        _not_found("automation")
+    return res
+
+
+@router.get("/automation", response_model=list[ParameterAutomation])
+def list_automation(target_type: str, target_id: str):
+    return get_timeline_service().list_automation(target_type, target_id)
+
+
+@router.patch("/automation/{automation_id}", response_model=ParameterAutomation)
+def update_automation(automation_id: str, automation: ParameterAutomation):
+    if automation.id != automation_id:
+        raise HTTPException(status_code=400, detail="automation id mismatch")
+    return get_timeline_service().update_automation(automation)
+
+
+@router.delete("/automation/{automation_id}")
+def delete_automation(automation_id: str):
+    get_timeline_service().delete_automation(automation_id)
+    return {"status": "deleted", "id": automation_id}

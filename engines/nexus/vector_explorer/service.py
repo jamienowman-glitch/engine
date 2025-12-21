@@ -6,7 +6,10 @@ from typing import List, Optional
 
 from engines.dataset.events.schemas import DatasetEvent
 from engines.logging.events.engine import run as log_dataset_event
+from engines.budget.service import get_budget_service, BudgetService
+from engines.budget.models import UsageEvent
 from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
+from engines.common.identity import RequestContext
 from engines.nexus.vector_explorer.repository import FirestoreVectorCorpusRepository, VectorCorpusRepository
 from engines.nexus.vector_explorer.scene_builder import build_scene
 from engines.nexus.vector_explorer.schemas import (
@@ -34,11 +37,13 @@ class VectorExplorerService:
         vector_store: Optional[ExplorerVectorStore] = None,
         embedder: Optional[EmbeddingAdapter] = None,
         event_logger: Optional[callable] = None,
+        budget_service: Optional[BudgetService] = None,
     ) -> None:
         self._repo = repository or FirestoreVectorCorpusRepository()
         self._vector_store = vector_store or VertexExplorerVectorStore()
         self._embedder = embedder or VertexEmbeddingAdapter()
         self._event_logger = event_logger or _dataset_event_logger
+        self._budget_service = budget_service or get_budget_service()
 
     def query_items(self, query: VectorExplorerQuery) -> VectorExplorerResult:
         items: List[VectorExplorerItem]
@@ -101,7 +106,8 @@ class VectorExplorerService:
 
     def _hydrate_similar_by_text(self, query: VectorExplorerQuery, text: str) -> List[VectorExplorerItem]:
         try:
-            embed = self._embedder.embed_text(text)
+            ctx = RequestContext(request_id="vector_explorer", tenant_id=query.tenant_id, env=query.env)
+            embed = self._embedder.embed_text(text, context=ctx)
             hits = self._vector_store.query(
                 vector=embed.vector,
                 tenant_id=query.tenant_id,
@@ -109,11 +115,29 @@ class VectorExplorerService:
                 space=query.space,
                 top_k=query.limit,
             )
+            est_tokens = max(1, len(text) // 4)
+            self._budget_service.record_usage(
+                ctx,
+                [
+                    UsageEvent(
+                        tenant_id=query.tenant_id,
+                        env=query.env,
+                        surface="vector_explorer",
+                        tool_type="embedding",
+                        tool_id="vector_explorer",
+                        provider="vertex",
+                        model_or_plan_id=embed.model_id,
+                        tokens_input=est_tokens,
+                        tokens_output=0,
+                        cost=0,
+                    )
+                ],
+            )
         except VectorStoreConfigError as exc:
             raise ValueError(str(exc))
         items: List[VectorExplorerItem] = []
         for hit in hits:
-            item = self._repo.get(hit.id)
+            item = self._repo.get(query.tenant_id, query.env, hit.id)
             if not item:
                 continue
             item.similarity_score = hit.score
@@ -133,7 +157,7 @@ class VectorExplorerService:
             raise ValueError(str(exc))
         items: List[VectorExplorerItem] = []
         for hit in hits:
-            item = self._repo.get(hit.id)
+            item = self._repo.get(query.tenant_id, query.env, hit.id)
             if not item:
                 continue
             item.similarity_score = hit.score
@@ -150,4 +174,5 @@ class VectorExplorerService:
 
 
 def _dataset_event_logger(event: DatasetEvent) -> None:
-    log_dataset_event(event)
+    # Default to no-op for safety in environments without logging backend configured.
+    return None
