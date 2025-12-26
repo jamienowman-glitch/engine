@@ -2,11 +2,30 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from engines.video_regions.routes import router
 from engines.video_regions.service import get_video_regions_service, VideoRegionsService
+from engines.common.identity import RequestContext, get_request_context
+from engines.identity.auth import get_auth_context
+from engines.identity.jwt_service import AuthContext
 from engines.media_v2.models import MediaAsset, DerivedArtifact
 from unittest.mock import MagicMock, patch
 
+def _video_regions_context() -> RequestContext:
+    return RequestContext(tenant_id="t_test", env="dev", project_id="p_video_regions")
+
+
+def _video_regions_auth() -> AuthContext:
+    return AuthContext(
+        user_id="regions_user",
+        email="regions@example.com",
+        tenant_ids=["t_test"],
+        default_tenant_id="t_test",
+        role_map={"t_test": "owner"},
+    )
+
+
 app = FastAPI()
 app.include_router(router)
+app.dependency_overrides[get_request_context] = _video_regions_context
+app.dependency_overrides[get_auth_context] = _video_regions_auth
 client = TestClient(app)
 
 def test_routes_analyze():

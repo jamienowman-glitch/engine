@@ -5,14 +5,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytest
-from starlette.testclient import TestClient
 
-from engines.chat.service.server import create_app
 from engines.media_v2.models import ArtifactCreateRequest, MediaUploadRequest, DerivedArtifact
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service, LocalMediaStorage
 from engines.video_render.service import RenderService, set_render_service
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def _setup_services():
@@ -62,7 +61,7 @@ def test_stabilise_defaults():
     media, timeline = _setup_services()
     project, clip = _create_project_with_stabilised_clip(media, timeline, stabilise=True, with_artifact=True)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -95,7 +94,7 @@ def test_stabilise_overrides():
         clip_meta={"smoothing": 0.5, "crop": "keep", "zoom": 5}
     )
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -115,7 +114,7 @@ def test_stabilise_missing_artifact():
     media, timeline = _setup_services()
     project, clip = _create_project_with_stabilised_clip(media, timeline, stabilise=True, with_artifact=False)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},

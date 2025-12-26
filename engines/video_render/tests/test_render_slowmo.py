@@ -5,14 +5,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytest
-from starlette.testclient import TestClient
 
-from engines.chat.service.server import create_app
 from engines.media_v2.models import ArtifactCreateRequest, MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service, LocalMediaStorage
 from engines.video_render.service import RenderService, set_render_service
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def _setup_services():
@@ -52,7 +51,7 @@ def test_slowmo_preset_high():
     media, timeline = _setup_services()
     project, clip = _create_project_with_slowmo_clip(media, timeline, quality="high", optical_flow=True)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -72,7 +71,7 @@ def test_slowmo_fallback_no_optical_flow():
     # optical_flow=False (default behavior even if not explicitly set, but passing explicity here)
     project, clip = _create_project_with_slowmo_clip(media, timeline, quality="high", optical_flow=False)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -90,7 +89,7 @@ def test_slowmo_preset_fast():
     media, timeline = _setup_services()
     project, clip = _create_project_with_slowmo_clip(media, timeline, quality="fast", optical_flow=True)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -107,7 +106,7 @@ def test_slowmo_details_meta():
     media, timeline = _setup_services()
     project, clip = _create_project_with_slowmo_clip(media, timeline, quality="medium", optical_flow=True)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -129,7 +128,7 @@ def test_slowmo_fallback_warning():
     # High quality + No optical flow -> Fallback
     project, clip = _create_project_with_slowmo_clip(media, timeline, quality="high", optical_flow=False)
     
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},

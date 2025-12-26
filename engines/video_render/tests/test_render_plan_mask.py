@@ -1,14 +1,12 @@
 import tempfile
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.media_v2.models import ArtifactCreateRequest, MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service
 from engines.video_render.service import RenderService, set_render_service
 from engines.video_timeline.models import Clip, Filter, FilterStack, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def test_render_plan_with_mask_includes_alphamerge():
@@ -63,7 +61,7 @@ def test_render_plan_with_mask_includes_alphamerge():
     )
     timeline_service.create_filter_stack(stack)
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},

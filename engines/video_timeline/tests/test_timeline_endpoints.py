@@ -1,7 +1,5 @@
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_timeline.tests.helpers import make_timeline_client
 
 
 def setup_module(_module):
@@ -9,7 +7,7 @@ def setup_module(_module):
 
 
 def test_project_sequence_track_clip_flow():
-    client = TestClient(create_app())
+    client = make_timeline_client()
 
     proj_resp = client.post(
         "/video/projects",
@@ -56,16 +54,19 @@ def test_project_sequence_track_clip_flow():
     assert client.get(f"/video/clips/{clip['id']}").status_code == 200
 
 def test_create_track_with_role():
-    client = TestClient(create_app())
+    client = make_timeline_client()
     # Create project/sequence stubs (just enough to get IDs)
-    proj = client.post("/video/projects", json={"tenant_id": "t1", "env": "dev", "title": "T", "tags": []}).json()
-    seq = client.post(f"/video/projects/{proj['id']}/sequences", json={"tenant_id": "t1", "env": "dev", "project_id": proj["id"], "name": "S"}).json()
+    proj = client.post("/video/projects", json={"tenant_id": "t_test", "env": "dev", "title": "T", "tags": []}).json()
+    seq = client.post(
+        f"/video/projects/{proj['id']}/sequences",
+        json={"tenant_id": "t_test", "env": "dev", "project_id": proj["id"], "name": "S"},
+    ).json()
     
     # Test video_role persistence
     track_resp = client.post(
         f"/video/sequences/{seq['id']}/tracks",
         json={
-            "tenant_id": "t1", "env": "dev", "sequence_id": seq["id"], 
+            "tenant_id": "t_test", "env": "dev", "sequence_id": seq["id"],
             "kind": "video", "order": 0,
             "video_role": "b-roll"
         },
@@ -75,15 +76,21 @@ def test_create_track_with_role():
     assert track["video_role"] == "b-roll"
 
 def test_create_clip_with_alignment():
-    client = TestClient(create_app())
-    proj = client.post("/video/projects", json={"tenant_id": "t1", "env": "dev", "title": "T", "tags": []}).json()
-    seq = client.post(f"/video/projects/{proj['id']}/sequences", json={"tenant_id": "t1", "env": "dev", "project_id": proj["id"], "name": "S"}).json()
-    track = client.post(f"/video/sequences/{seq['id']}/tracks", json={"tenant_id": "t1", "env": "dev", "sequence_id": seq["id"], "kind": "video"}).json()
+    client = make_timeline_client()
+    proj = client.post("/video/projects", json={"tenant_id": "t_test", "env": "dev", "title": "T", "tags": []}).json()
+    seq = client.post(
+        f"/video/projects/{proj['id']}/sequences",
+        json={"tenant_id": "t_test", "env": "dev", "project_id": proj["id"], "name": "S"},
+    ).json()
+    track = client.post(
+        f"/video/sequences/{seq['id']}/tracks",
+        json={"tenant_id": "t_test", "env": "dev", "sequence_id": seq["id"], "kind": "video"},
+    ).json()
     
     clip_resp = client.post(
         f"/video/tracks/{track['id']}/clips",
         json={
-            "tenant_id": "t1", "env": "dev", "track_id": track["id"], "asset_id": "a1",
+            "tenant_id": "t_test", "env": "dev", "track_id": track["id"], "asset_id": "a1",
             "in_ms": 0, "out_ms": 1000, "start_ms_on_timeline": 0,
             "alignment_applied": True
         },

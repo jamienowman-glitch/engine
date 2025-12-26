@@ -1,14 +1,12 @@
 import tempfile
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.media_v2.models import MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service, LocalMediaStorage
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
 from engines.video_render.service import set_render_service, RenderService
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def test_render_plan_contains_overlay_and_profile():
@@ -52,7 +50,7 @@ def test_render_plan_contains_overlay_and_profile():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -97,7 +95,7 @@ def test_plan_determinism():
     c1 = timeline_service.create_clip(Clip(tenant_id="t1", env="dev", track_id=track.id, asset_id=asset.id, in_ms=0, out_ms=1000, start_ms_on_timeline=1000))
     c2 = timeline_service.create_clip(Clip(tenant_id="t1", env="dev", track_id=track.id, asset_id=asset.id, in_ms=0, out_ms=1000, start_ms_on_timeline=0)) # Earlier
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     payload = {
         "tenant_id": "t1", 
         "env": "dev", 

@@ -1,8 +1,6 @@
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.video_timeline.models import ParameterAutomation, Keyframe
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_timeline.tests.helpers import make_timeline_client
 
 
 def setup_module(_module):
@@ -10,7 +8,7 @@ def setup_module(_module):
 
 
 def test_create_list_delete_automation():
-    client = TestClient(create_app())
+    client = make_timeline_client()
     auto_payload = {
         "tenant_id": "t_test",
         "env": "dev",

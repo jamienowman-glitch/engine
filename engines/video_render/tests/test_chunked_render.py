@@ -2,15 +2,13 @@ import tempfile
 import types
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.media_v2.models import MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service
 from engines.video_render.jobs import InMemoryRenderJobRepository
 from engines.video_render.service import RenderService, set_render_service
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def setup_services():
@@ -48,7 +46,7 @@ def seed_project(duration_ms: int = 25000):
 
 def test_chunk_plan_overlap_boundaries():
     project, _ = seed_project(duration_ms=25000)
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/chunks/plan",
         json={
@@ -77,7 +75,7 @@ def test_segment_jobs_and_stitch_plan():
         render_service,
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     jobs_resp = client.post(
         "/video/render/jobs/chunked",
         json={

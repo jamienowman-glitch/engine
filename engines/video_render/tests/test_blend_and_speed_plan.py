@@ -1,15 +1,13 @@
 import tempfile
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.media_v2.models import MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service
 from engines.video_render.models import RenderRequest
 from engines.video_render.service import RenderService, set_render_service
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def _setup_services():
@@ -66,7 +64,7 @@ def test_blend_mode_add_shows_blend_filter():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     req = RenderRequest(tenant_id="t_test", env="dev", user_id="u1", project_id=project.id, render_profile="preview_720p_fast", dry_run=True)
     resp = client.post("/video/render/dry-run", json=req.model_dump())
     assert resp.status_code == 200
@@ -96,7 +94,7 @@ def test_speed_slow_mo_emits_setpts():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     req = RenderRequest(tenant_id="t_test", env="dev", user_id="u1", project_id=project.id, render_profile="preview_720p_fast", dry_run=True)
     resp = client.post("/video/render/dry-run", json=req.model_dump())
     assert resp.status_code == 200

@@ -4,14 +4,13 @@ from pathlib import Path
 
 # Fix: Import build_transition_plans for unit test
 from engines.video_render.planner import build_transition_plans
-from fastapi.testclient import TestClient
 
-from engines.chat.service.server import create_app
 from engines.media_v2.models import MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, LocalMediaStorage, MediaService, set_media_service
 from engines.video_timeline.models import Clip, Filter, FilterStack, Sequence, Track, Transition, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
 from engines.video_render.service import set_render_service, RenderService
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def test_filters_and_transitions_in_plan():
@@ -55,7 +54,7 @@ def test_filters_and_transitions_in_plan():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
@@ -129,7 +128,7 @@ def test_transition_duration_clamping():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={"tenant_id": "t_test", "env": "dev", "project_id": project.id, "render_profile": "social_1080p_h264"},

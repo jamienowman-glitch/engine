@@ -1,14 +1,12 @@
 import tempfile
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
 from engines.media_v2.models import MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service
 from engines.video_render.service import RenderService, set_render_service
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def setup_services():
@@ -47,7 +45,7 @@ def test_loudnorm_in_plan():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     resp = client.post(
         "/video/render/dry-run",
         json={

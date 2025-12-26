@@ -2,15 +2,14 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from engines.chat.service.server import create_app
 from engines.media_v2.models import MediaUploadRequest
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service, LocalMediaStorage
 from engines.video_render.models import RenderRequest
 from engines.video_render.service import set_render_service, RenderService
 from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.tests.helpers import make_video_render_client
 
 
 def setup_module(_module):
@@ -50,7 +49,7 @@ def test_render_dry_run_minimal():
         )
     )
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     req = RenderRequest(tenant_id="t_test", env="dev", user_id="u1", project_id=project.id, render_profile="social_1080p_h264", dry_run=True)
     resp = client.post("/video/render/dry-run", json=req.model_dump())
     assert resp.status_code == 200
@@ -90,7 +89,7 @@ def test_missing_asset_dry_run():
     set_timeline_service(timeline_service)
     set_render_service(RenderService())
 
-    client = TestClient(create_app())
+    client = make_video_render_client()
     req = RenderRequest(tenant_id="t_test", env="dev", user_id="u1", project_id=project.id, render_profile="social_1080p_h264", dry_run=True)
     
     resp = client.post("/video/render/dry-run", json=req.model_dump())
