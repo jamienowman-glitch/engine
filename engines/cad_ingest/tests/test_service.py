@@ -142,8 +142,10 @@ class TestCadIngestService:
         # Second ingest with same content and params
         model2, response2 = service.ingest(DXF_FLOORPLAN_FIXTURE, request)
         
-        # Should be same (from cache)
+        # Should be same object reference (from cache)
+        assert model1 is model2
         assert model1.id == model2.id
+        assert response1.model_hash == response2.model_hash
     
     def test_service_cache_miss_different_params(self):
         """Test cache miss when params differ."""
@@ -161,10 +163,32 @@ class TestCadIngestService:
         )
         
         model1, _ = service.ingest(DXF_FLOORPLAN_FIXTURE, request1)
+        
+        # Should have 1 entry
+        assert len(service.cache.cache) == 1
+        
         model2, _ = service.ingest(DXF_FLOORPLAN_FIXTURE, request2)
         
-        # Different params should produce different models (at least different cache keys)
-        # Note: models might be identical if tolerance doesn't affect output
+        # Should have 2 entries now
+        assert len(service.cache.cache) == 2
+        
+        # Different params should produce different model objects
+        assert model1 is not model2
+        assert model1.id != model2.id  # IDs are random UUIDs so they differ
+    
+    def test_response_includes_model_hash(self):
+        """Verify response includes model hash."""
+        service = CadIngestService()
+        request = CadIngestRequest(
+            tenant_id="test-tenant",
+            env="test",
+        )
+        
+        model, response = service.ingest(DXF_FLOORPLAN_FIXTURE, request)
+        
+        assert response.model_hash is not None
+        assert len(response.model_hash) > 0
+        assert response.model_hash == model.model_hash
     
     def test_service_params_hash(self):
         """Test params hash generation."""

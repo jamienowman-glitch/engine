@@ -6,6 +6,8 @@ from engines.video_timeline.models import ParameterAutomation
 class FocusRequest(BaseModel):
     clip_id: str
     asset_id: str
+    tenant_id: Optional[str] = None
+    env: Optional[str] = None
     audio_artifact_id: Optional[str] = None
     visual_artifact_id: Optional[str] = None
     target_aspect_ratio: str = "9:16" 

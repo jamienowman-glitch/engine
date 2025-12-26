@@ -3,7 +3,7 @@
 Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics → BoQ → cost → plan → diff. Lane = CAD. Respect phase STOP RULEs; stay within listed folders/files.
 
 ## Stream: Ingest / Topology (CAD01)
-- **id:** CAD01-INGEST-UNITS-DETECT  
+- **id:** CAD01-INGEST-UNITS-DETECT (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD01_ingest_P0_P2.md  
   **stream:** Ingest  
@@ -15,7 +15,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/cad_ingest/ files listed.  
   **size:** M
 
-- **id:** CAD01-HEAL-TOPOLOGY-TOLERANCE  
+- **id:** CAD01-HEAL-TOPOLOGY-TOLERANCE (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD01_ingest_P0_P2.md  
   **stream:** Topology  
@@ -27,7 +27,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/cad_ingest/topology_heal.py and tests/test_topology_heal.py.  
   **size:** S
 
-- **id:** CAD01-CACHE-KEY-IDEMPOTENT  
+- **id:** CAD01-CACHE-KEY-IDEMPOTENT (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD01_ingest_P0_P2.md  
   **stream:** Ingest  
@@ -39,7 +39,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/cad_ingest/service.py and tests/test_service.py.  
   **size:** S
 
-- **id:** CAD01-ARTIFACT-REGISTRATION-PREFIX  
+- **id:** CAD01-ARTIFACT-REGISTRATION-PREFIX (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD01_ingest_P0_P2.md  
   **stream:** Ingest  
@@ -51,7 +51,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/media_v2/models.py and tests/test_media_v2_endpoints.py.  
   **size:** S
 
-- **id:** CAD01-ROUTE-CONTEXT-VALIDATION  
+- **id:** CAD01-ROUTE-CONTEXT-VALIDATION (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD01_ingest_P0_P2.md  
   **stream:** Ingest  
@@ -64,7 +64,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **size:** S
 
 ## Stream: Semantics / Graph (CAD02)
-- **id:** CAD02-LAYER-RULES-CONFIG  
+- **id:** CAD02-LAYER-RULES-CONFIG (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD02_semantics_P3_P5.md  
   **stream:** Semantics  
@@ -76,7 +76,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/cad_semantics/ rules/service/models and listed tests.  
   **size:** M
 
-- **id:** CAD02-LEVEL-DETECTION  
+- **id:** CAD02-LEVEL-DETECTION (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD02_semantics_P3_P5.md  
   **stream:** Semantics  
@@ -88,7 +88,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/cad_semantics/ rules.py, graph.py, listed tests.  
   **size:** S
 
-- **id:** CAD02-SPATIAL-GRAPH-ADJ-CONN  
+- **id:** CAD02-SPATIAL-GRAPH-ADJ-CONN (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD02_semantics_P3_P5.md  
   **stream:** Graph  
@@ -100,7 +100,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/cad_semantics/graph.py and tests/test_spatial_graph.py.  
   **size:** S
 
-- **id:** CAD02-SEMANTIC-ARTIFACT-META  
+- **id:** CAD02-SEMANTIC-ARTIFACT-META (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD02_semantics_P3_P5.md  
   **stream:** Semantics  
@@ -113,7 +113,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **size:** S
 
 ## Stream: Quantities (CAD03)
-- **id:** CAD03-WALL-AREA-OPENINGS  
+- **id:** CAD03-WALL-AREA-OPENINGS (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD03_quantities_P6.md  
   **stream:** Quantities  
@@ -125,7 +125,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/boq_quantities/ formulas.py, service.py, listed tests.  
   **size:** M
 
-- **id:** CAD03-SCOPE-TAGGING-LEVEL-ZONE  
+- **id:** CAD03-SCOPE-TAGGING-LEVEL-ZONE (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD03_quantities_P6.md  
   **stream:** Quantities  
@@ -137,7 +137,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/boq_quantities/ models.py, service.py, tests/test_quantities_determinism.py.  
   **size:** S
 
-- **id:** CAD03-ARTIFACT-META-HASH  
+- **id:** CAD03-ARTIFACT-META-HASH (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD03_quantities_P6.md  
   **stream:** Quantities  
@@ -150,7 +150,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **size:** S
 
 ## Stream: Costing (CAD04)
-- **id:** CAD04-CATALOG-VERSIONING  
+- **id:** CAD04-CATALOG-VERSIONING (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD04_costing_P7_P8.md  
   **stream:** Costing  
@@ -162,7 +162,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/boq_costing/ catalog.py, service.py, models.py, listed tests.  
   **size:** M
 
-- **id:** CAD04-CURRENCY-FX-TABLE  
+- **id:** CAD04-CURRENCY-FX-TABLE (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD04_costing_P7_P8.md  
   **stream:** Costing  
@@ -174,7 +174,7 @@ Scope: docs-only registry of feral-worker tasks for CAD ingest → semantics →
   **agent_scope_hint:** Scope to engines/boq_costing/service.py and tests/test_costing_overrides.py.  
   **size:** S
 
-- **id:** CAD04-ARTIFACT-META-TOTALS  
+- **id:** CAD04-ARTIFACT-META-TOTALS (DONE)  
   **lane:** CAD  
   **phase:** PHASE_CAD04_costing_P7_P8.md  
   **stream:** Costing  

@@ -15,8 +15,7 @@ from engines.identity.auth import AuthContext, get_auth_context
 
 # Mock Auth/Context Overrides
 async def mock_request_context():
-    return RequestContext(
-        tenant_id="t_test",
+    return RequestContext(tenant_id="t_test",
         env="dev",
         user_id="u_test",
         membership_role="member" # Default member
@@ -104,8 +103,7 @@ def test_get_defaults():
 def test_update_flags_owner():
     # Override as owner
     async def mock_owner_ctx():
-        return RequestContext(
-            tenant_id="t_test",
+        return RequestContext(tenant_id="t_test",
             env="dev",
             user_id="u_owner",
             membership_role="owner"

@@ -26,8 +26,7 @@ async def mock_auth_ctx():
     )
 
 async def mock_req_ctx():
-    return RequestContext(
-        tenant_id="t_test", 
+    return RequestContext(tenant_id="t_test", 
         env="dev",
         user_id="u_test"
     )

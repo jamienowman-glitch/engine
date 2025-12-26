@@ -24,12 +24,17 @@ from engines.video_render.models import (
     SegmentJobsRequest,
     StitchRequest,
 )
-from engines.video_render.planner import build_transition_plans
+from engines.video_render.planner import build_transition_plans, TRANSITION_PRESETS
 from engines.video_render.profiles import PROFILE_GPU_PREFERENCES, PROFILE_MAP, RenderProfile
 from engines.video_timeline.service import get_timeline_service
 from engines.video_timeline.models import Clip, Filter, FilterStack, Keyframe, ParameterAutomation
 from engines.video_slowmo.backend import get_optical_flow_filter
 from engines.video_captions.service import get_captions_service
+
+
+
+class AssetAccessError(RuntimeError):
+    pass
 
 
 def _ffmpeg_available() -> bool:
@@ -60,11 +65,11 @@ SLOWMO_PRESETS = {
 DEFAULT_SLOWMO_QUALITY = "high"
 
 STABILISE_DEFAULTS = {
-    "smoothing": 15,
-    "zoom": 1,
-    "crop": 0,
-    "tripod": 1,
-    "description": "Moderate smoothing with minimal crop",
+    "smoothing": 0.1,
+    "zoom": 0,
+    "crop": "black",
+    "tripod": 0,
+    "description": "Minimal smoothing with black borders",
 }
 
 FORCE_CPU_ENV = "VIDEO_RENDER_FORCE_CPU"
@@ -214,6 +219,9 @@ class RenderService:
         if len(active) >= self._max_concurrent_jobs:
             raise RuntimeError(f"max concurrent render jobs reached ({self._max_concurrent_jobs})")
 
+    def get_transition_presets(self) -> Dict[str, Dict[str, Any]]:
+        return TRANSITION_PRESETS
+
     def _profile_args(self, profile: RenderProfile, encoder_override: Optional[str] = None) -> List[str]:
         prof = PROFILE_MAP[profile]
         args = [
@@ -317,6 +325,8 @@ class RenderService:
         stack = self.timeline_service.get_filter_stack_for_target(target_type, target_id)
         return self._filter_chain(stack)
 
+
+
     def _ensure_local(self, uri: str) -> str:
         if uri.startswith("gs://") and self.gcs:
             tmp_dir = Path(tempfile.mkdtemp(prefix="render_src_"))
@@ -328,8 +338,15 @@ class RenderService:
                 blob = bucket.blob(key)
                 blob.download_to_filename(str(dest))
                 return str(dest)
-            except Exception:
-                return uri
+            except Exception as e:
+                raise AssetAccessError(f"failed to download from GCS {uri}: {e}") from e
+        
+        # Check local existence
+        if uri.startswith("/") or uri.startswith("file://"):
+            clean_path = uri.replace("file://", "")
+            if not Path(clean_path).exists():
+                raise AssetAccessError(f"local asset not found: {uri}")
+        
         return uri
 
     def _proxy_cache_key(self, asset: MediaAsset, kind: str) -> str:
@@ -399,7 +416,7 @@ class RenderService:
                 uri=proxy_uri,
                 meta={
                     "render_profile": config["profile"],
-                    "hardware_encoder": "libx264",
+                    "encoder_used": self._resolve_hardware_encoder(config["profile"]),
                     "proxy_cache_key": cache_key,
                     "proxy_resolution": config["label"],
                     "source_asset_id": asset.id,
@@ -545,12 +562,15 @@ class RenderService:
         input_meta: List[dict] = []
         steps = []
         voice_enhance_warnings: List[str] = []
+        filter_warnings: List[str] = []
         audio_semantic_sources: List[dict] = []
         audio_selections: List[dict] = []
         audio_inputs: List[str] = []
         slowmo_details: List[Dict[str, Any]] = []
         stabilise_warnings: List[str] = []
         stabilise_details: List[Dict[str, Any]] = []
+        slowmo_warnings: List[str] = []
+        
         for clip in sorted_clips:
             asset = self.media_service.get_asset(clip.asset_id)
             if not asset:
@@ -563,7 +583,9 @@ class RenderService:
                 # Look for available proxies (generic or specific)
                 # We prefer smaller resolutions like 360p or generic 'video_proxy'
                 proxy_art = None
-                for art in artifacts:
+                # Sort artifacts to ensure deterministic selection
+                sorted_artifacts = sorted(artifacts, key=lambda a: (a.kind, a.id))
+                for art in sorted_artifacts:
                     if art.kind in ("video_proxy_360p", "video_proxy", "video_proxy_720p"):
                         # Pick the first one found, or sort? 
                         # Prefer 360p for speed? Sort by kind?
@@ -573,15 +595,40 @@ class RenderService:
                 if proxy_art:
                     uri = proxy_art.uri
 
-            uri = self._ensure_local(uri)
-            inputs.append(uri)
-            input_meta.append({"kind": "video", "clip_id": clip.id})
+            try:
+                uri = self._ensure_local(uri)
+                inputs.append(uri)
+                input_meta.append({"kind": "video", "clip_id": clip.id})
+            except AssetAccessError as e:
+                if req.dry_run:
+                    filter_warnings.append(f"missing asset for clip {clip.id}: {e}")
+                    # Use a placeholder path to keep plan structure valid for preview
+                    # Assuming we default to black frames or skip
+                    # Ideally we might skip, but index alignment matters. 
+                    # Let's insert a dummy non-existent path that ffmpeg would fail on, but dry-run response is pure JSON.
+                    # Actually, if we skip inputs.append, we break index alignment with timeline.
+                    # So we must append SOMETHING if we want to keep structure, or just fail dry run?
+                    # Plan goal: "dry-run warns clearly".
+                    inputs.append(f"PLACEHOLDER_MISSING_ASSET_{clip.id}")
+                    input_meta.append({"kind": "video", "clip_id": clip.id, "error": str(e)})
+                else:
+                    raise e
+            
+            
+            # Mask handling
             if getattr(clip, "mask_artifact_id", None):
                 mask_art = self.media_service.get_artifact(clip.mask_artifact_id)
                 if mask_art:
-                    mask_path = self._ensure_local(mask_art.uri)
-                    inputs.append(mask_path)
-                    input_meta.append({"kind": "mask", "clip_id": clip.id})
+                    try:
+                        mask_path = self._ensure_local(mask_art.uri)
+                        inputs.append(mask_path)
+                        input_meta.append({"kind": "mask", "clip_id": clip.id})
+                    except AssetAccessError as e:
+                        if req.dry_run:
+                            filter_warnings.append(f"missing mask artifact for clip {clip.id}: {e}")
+                        else:
+                            raise e
+                    
             role = getattr(track_map.get(clip.track_id), "audio_role", "generic") or "generic"
             enhanced = None
             if req.use_voice_enhanced_audio and role in {"dialogue", "generic"}:
@@ -695,7 +742,11 @@ class RenderService:
                     if trf_art:
                         trf_path = self._ensure_local(trf_art.uri)
                         stab_label = f"stab{video_idx}"
-                        cfg = STABILISE_DEFAULTS
+                        cfg = STABILISE_DEFAULTS.copy()
+                        if getattr(clip, "meta", None):
+                             for key in ["smoothing", "zoom", "crop", "tripod"]:
+                                 if key in clip.meta:
+                                     cfg[key] = clip.meta[key]
                         vf_filters.append(
                             f"{label_out}vidstabtransform=input={trf_path}:interpol=linear:"
                             f"smoothing={cfg['smoothing']}:zoom={cfg['zoom']}:crop={cfg['crop']}:tripod={cfg['tripod']}[{stab_label}]"
@@ -728,6 +779,8 @@ class RenderService:
                             vf_filters.append(f"{label_out}{slowmo_filter}[{flow_label}]")
                             label_out = f"[{flow_label}]"
                             slowmo_details.append(slowmo_meta)
+                            if slowmo_meta.get("method") == "tblend" and slowmo_meta.get("quality", "fast") in ("high", "medium"):
+                                slowmo_warnings.append(f"slowmo_optical_flow_missing_fallback_tblend_clip_{clip.id}")
                 
                 # Apply Clip Filters
                 stack = self.timeline_service.get_filter_stack_for_target("clip", clip.id)
@@ -745,6 +798,14 @@ class RenderService:
                         asset_region_requirements.setdefault(clip.asset_id, set()).update(region_requirements)
                     from engines.video_render.extensions import resolve_region_masks_for_clip
                     region_mask_map = resolve_region_masks_for_clip(self.media_service, clip, stack.filters)
+                    
+                    # Check for missing masks
+                    for i, flt in enumerate(stack.filters):
+                        if not flt.enabled:
+                            continue
+                        region = REGION_FILTER_MAP.get(flt.type)
+                        if region and i not in region_mask_map and not flt.mask_artifact_id:
+                             filter_warnings.append(f"missing_region_mask_for_{flt.type}_clip_{clip.id}")
 
                 if stack and stack.filters:
                     for i, flt in enumerate(stack.filters):
@@ -886,6 +947,8 @@ class RenderService:
                   chain_filters.append(f"volume=dB={clip.volume_db}")
 
              autos = automation_map.get(clip.id, [])
+             # Sort automation to ensure deterministic filter expression order
+             autos.sort(key=lambda a: (a.property, a.keyframes[0].time_ms if a.keyframes else 0))
              vol_keys = [a for a in autos if a.property == "volume_db"]
              if vol_keys:
                  expr = self._automation_expr(vol_keys)
@@ -989,7 +1052,7 @@ class RenderService:
             "render_profile": req.render_profile,
             "render_profile_description": profile_data.get("description"),
             "transitions": transition_meta,
-            "hardware_encoder": selected_encoder,
+            "encoder_used": selected_encoder,
         }
         if source_asset_ids:
             meta["source_assets"] = source_asset_ids
@@ -1004,19 +1067,23 @@ class RenderService:
         if req.ducking:
              meta["ducking_analysis"] = {"speech_windows_count": len(speech_windows)}
         if slowmo_details:
+            # Sort by clip ID/sequence in list to be sure
+            slowmo_details.sort(key=lambda x: x.get("clip_id", ""))
             meta["slowmo_details"] = slowmo_details
         if stabilise_warnings:
-            meta["stabilise_warnings"] = stabilise_warnings
+             # Sort warnings
+             stabilise_warnings.sort()
+             meta["stabilise_warnings"] = stabilise_warnings
         if stabilise_details:
-            meta["stabilise_details"] = stabilise_details
+             stabilise_details.sort(key=lambda x: x.get("clip_id", ""))
+             meta["stabilise_details"] = stabilise_details
 
         dependencies: List[Dict[str, Any]] = []
         warnings: List[str] = []
         seen_dependency_keys: set[tuple[str, str]] = set()
 
         def warn_missing(dep_type: str, asset_id: Optional[str]) -> None:
-            if req.dry_run:
-                warnings.append(f"{dep_type} missing for asset {asset_id or 'unknown'}")
+            warnings.append(f"{dep_type} missing for asset {asset_id or 'unknown'}")
 
         def add_dependency(
             dep_type: str,
@@ -1049,7 +1116,7 @@ class RenderService:
                 warn_missing(dep_type, asset_id)
             dependencies.append(entry)
 
-        for asset_id, region_types in asset_region_requirements.items():
+        for asset_id, region_types in sorted(asset_region_requirements.items()):
             summary_art = self._latest_artifact_for_kind(asset_id, "video_region_summary", artifact_cache)
             add_dependency("video_regions", asset_id, summary_art, sorted(region_types) if region_types else None)
 
@@ -1075,7 +1142,14 @@ class RenderService:
                 warn_missing("captions", req.project_id)
 
         meta["dependency_notices"] = dependencies
+        if filter_warnings:
+             warnings.extend(filter_warnings)
+        if slowmo_warnings:
+             warnings.extend(slowmo_warnings)
+        if stabilise_warnings:
+             warnings.extend(stabilise_warnings)
         if warnings:
+            meta["render_warnings"] = warnings
             meta["warnings"] = warnings
 
         return RenderPlan(
@@ -1186,7 +1260,7 @@ class RenderService:
         cache_val = cache_key or self._cache_key(req)
         artifact_meta: Dict[str, Any] = {
             "render_profile": req.render_profile,
-            "hardware_encoder": plan.meta.get("hardware_encoder"),
+            "encoder_used": plan.meta.get("encoder_used"),
         }
         if plan.meta.get("source_assets"):
             artifact_meta["source_assets"] = plan.meta["source_assets"]
@@ -1225,14 +1299,26 @@ class RenderService:
             seg = RenderSegment(
                 tenant_id=req.tenant_id,
                 env=req.env,
-                user_id=req.user_id,
-                project_id=req.project_id,
-                sequence_id=sequence.id,
-                segment_index=idx,
+                meta={
+                "project_id": req.project_id,
+                "sequence_id": sequence.id,
+                "stage_timeout": self._default_timeout,
+                "render_engine": "ffmpeg",
+                "encoder_used": self._resolve_hardware_encoder(req.render_profile),
+                "slowmo_details": [], # These are collected during _build_plan, not here
+                "stabilise_details": [],
+                "stabilise_warnings": [],
+                "voice_enhance_audio_warnings": [],
+                "render_warnings": [],
+                "dependency_notices": [],
+                "audio_semantic_sources": [],
+                "audio_selections": [],
+            },    project_id=req.project_id,
+                render_profile=req.render_profile,
                 start_ms=start,
                 end_ms=end,
                 overlap_ms=req.overlap_ms,
-                profile=req.render_profile,
+                segment_index=idx,
             )
             seg_req = RenderRequest(
                 tenant_id=req.tenant_id,
@@ -1263,7 +1349,11 @@ class RenderService:
                 }
             )
             cache_val = self._cache_key(seg_req)
-            cached = self.job_repo.find_by_cache_key(seg_req.tenant_id, cache_val, job_type="segment")
+            cached = self.job_repo.find_by_cache_key(seg_req.tenant_id, cache_val, job_type="segment", statuses=["queued", "running"])
+            if cached:
+                jobs.append(cached)
+                continue
+            cached = self.job_repo.find_by_cache_key(seg_req.tenant_id, cache_val, job_type="segment", statuses=["succeeded"])
             if cached:
                 job = VideoRenderJob(
                     tenant_id=seg_req.tenant_id,
@@ -1309,7 +1399,13 @@ class RenderService:
 
     def create_job(self, req: RenderRequest, job_type: RenderJobType = "full") -> VideoRenderJob:
         cache_val = self._cache_key(req)
-        cached = self.job_repo.find_by_cache_key(req.tenant_id, cache_val, job_type=job_type)
+        # 1. Active job exists? Return it (idempotency)
+        active = self.job_repo.find_by_cache_key(req.tenant_id, cache_val, job_type=job_type, statuses=["queued", "running"])
+        if active:
+            return active
+            
+        # 2. Succeeded job exists? Return duplicate (or result reference)
+        cached = self.job_repo.find_by_cache_key(req.tenant_id, cache_val, job_type=job_type, statuses=["succeeded"])
         if cached:
             job = VideoRenderJob(
                 tenant_id=req.tenant_id,
@@ -1377,6 +1473,26 @@ class RenderService:
         job.updated_at = datetime.now(timezone.utc)
         self.job_repo.update(job)
         return job
+
+    def cancel_job(self, job_id: str) -> None:
+        job = self.job_repo.get(job_id)
+        if not job or job.status in {"succeeded", "failed", "cancelled"}:
+            return
+        job.status = "cancelled"
+        job.updated_at = datetime.now(timezone.utc)
+        self.job_repo.update(job)
+
+    def resume_job(self, job_id: str) -> VideoRenderJob:
+        job = self.job_repo.get(job_id)
+        if not job:
+            raise ValueError("job not found")
+        if job.status not in {"failed", "cancelled"}:
+            return job
+        job.status = "queued"
+        job.progress = 0.0
+        job.error_message = None
+        job.updated_at = datetime.now(timezone.utc)
+        return self.job_repo.update(job)
 
     def list_jobs(self, tenant_id: str, env: Optional[str] = None, status: Optional[str] = None, project_id: Optional[str] = None) -> List[VideoRenderJob]:
         return self.job_repo.list(tenant_id=tenant_id, env=env, status=status, project_id=project_id)

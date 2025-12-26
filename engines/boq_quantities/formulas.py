@@ -36,6 +36,72 @@ class QuantityFormula:
         raise NotImplementedError
 
 
+def bboxes_intersect(b1: Dict[str, Any], b2: Dict[str, Any], tolerance: float = 10.0) -> bool:
+    """
+    Check if two 2D bboxes intersect (ignoring Z for wall/opening overlap).
+    Using simple min/max bounds from geometry if available, 
+    otherwise assuming geometry_ref has 2D bounds or center+dims.
+    
+    Since we don't have BoundingBox objects here (just dict refs), 
+    we'll need to rely on the underlying geometry_ref details if standard bbox not present.
+    However, assuming standard bbox presence or derived center+dim logic.
+    
+    For this heuristic, we assume openings are usually 'inside' the wall length/width.
+    """
+    # Helper to extract min/max 2D
+    def get_bounds(geo):
+        # Try explicit bbox if passed (not guaranteed in dict)
+        # Fallback to center/dims
+        x = geo.get("x", 0.0)
+        y = geo.get("y", 0.0)
+        w = geo.get("length", geo.get("width", 0.0)) # Wall length or Window width
+        t = geo.get("thickness", 200.0) # Wall thickness implies depth
+        # Rotation is tricky. For simplified logic, assume axis aligned or 
+        # just check distance < sum_dims/2
+        return x, y, w, t
+
+    x1, y1, w1, t1 = get_bounds(b1)
+    x2, y2, w2, t2 = get_bounds(b2)
+    
+    # Simple circle/distance check might be safer if rotation unknown?
+    # Or strict AABB check?
+    # Let's use strict AABB with "inflate" logic for intersection.
+    # But wait, walls are usually lines?
+    # CAD system usually defines walls as Polyline (start/end) or location + dim.
+    # Let's look at bboxes_adjacent logic in graph.py - it used centroid distance.
+    # For embedding, the opening centroid should be roughly ON the wall line 
+    # and within the wall segments.
+    # Let's use centroid distance: distance(c1, c2) < (L1 + L2)/2 roughly?
+    
+    # Better: check if opening centroid is close to wall curve.
+    # But we only have generic geometry dict here.
+    # Let's assume standard centroid distance check for "overlap" in close proximity.
+    
+    dx = abs(x1 - x2)
+    dy = abs(y1 - y2)
+    
+    # If generic 3D dist check?
+    dist = (dx*dx + dy*dy)**0.5
+    
+    # If distance is small enough (e.g. within wall length/2), assume potential match.
+    # But we need to distinguish between separate walls.
+    # Check if distance is less than (wall_length/2 + opening_width/2) roughly?
+    max_dist = (w1 + w2) / 2.0
+    
+    # Also need to check if they are collinear or "touching" in thickness.
+    # Use tighter tolerance for thickness axis? Hard without rotation.
+    # Let's use a conservative containment check:
+    # Opening centroid must be within Wall radius?
+    
+    # REVISED: BoundingBox check is best if we had it.
+    # Since we don't, let's look at `bbox` field on SemanticElement? 
+    # models.py says: `geometry_ref: Dict`.
+    # But `SemanticElement` is created from `CadModel.Entity` which HAS `bbox`.
+    # Let's revert to using `element.geometry_ref` values which are usually central.
+    
+    return dist < (max_dist + tolerance)
+
+
 class WallFormula(QuantityFormula):
     """Wall area and length calculation."""
     
@@ -59,16 +125,22 @@ class WallFormula(QuantityFormula):
         area_mm2 = length * height
         area_m2 = area_mm2 / 1_000_000  # Convert mm² to m²
         
-        # Find openings (doors/windows on same level)
+        # Find openings (doors/windows on same level AND intersecting)
         opening_area_m2 = 0.0
+        opening_count = 0
+        
         for other_elem in semantic_model.elements:
             if (other_elem.level_id == element.level_id and 
                 other_elem.semantic_type in (SemanticType.DOOR, SemanticType.WINDOW)):
+                
+                # Check spatial intersection
                 other_geom = other_elem.geometry_ref or {}
-                opening_width = other_geom.get("width", 1000.0)
-                opening_height = other_geom.get("height", 2000.0)
-                opening_area_mm2 = opening_width * opening_height
-                opening_area_m2 += opening_area_mm2 / 1_000_000
+                if bboxes_intersect(geom, other_geom):
+                    opening_width = other_geom.get("width", 1000.0)
+                    opening_height = other_geom.get("height", 2000.0)
+                    opening_area_mm2 = opening_width * opening_height
+                    opening_area_m2 += opening_area_mm2 / 1_000_000
+                    opening_count += 1
         
         # Net area
         net_area_m2 = max(0, area_m2 - opening_area_m2)
@@ -80,6 +152,7 @@ class WallFormula(QuantityFormula):
             "length_m": round(length / 1000, 3),
             "height_m": round(height / 1000, 3),
             "thickness_mm": wall_thickness,
+            "opening_deduction_count": opening_count,
         }
         
         return net_area_m2, UnitType.M2, FormulaType.WALL_AREA_NET, meta

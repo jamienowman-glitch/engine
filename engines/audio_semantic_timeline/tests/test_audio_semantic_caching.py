@@ -22,8 +22,16 @@ class CountingBackend:
         return AudioSemanticAnalyzeRequest  # type: ignore
 
 
+class DummyStorage:
+    def upload_file(self, file_path: Path, bucket: str, key: str) -> str:
+        return f"gs://{bucket}/{key}"
+    def get_signed_url(self, bucket: str, key: str, expires_in: int = 3600) -> str:
+        return f"https://storage.googleapis.com/{bucket}/{key}"
+    def delete_file(self, bucket: str, key: str) -> None:
+        pass
+
 def test_audio_semantic_caching(monkeypatch):
-    media_service = MediaService(repo=InMemoryMediaRepository())
+    media_service = MediaService(repo=InMemoryMediaRepository(), storage=DummyStorage())
     set_media_service(media_service)
     backend_calls = {"count": 0}
 

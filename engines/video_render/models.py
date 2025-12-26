@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-RenderProfile = Literal["social_1080p_h264", "preview_720p_fast", "youtube_4k_h264", "master_4k_prores", "1080p_30_web"]
+
+from .profiles import RenderProfile
 
 
 class RenderRequest(BaseModel):

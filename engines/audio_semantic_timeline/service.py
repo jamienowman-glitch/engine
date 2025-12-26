@@ -308,7 +308,8 @@ class AudioSemanticService:
     @staticmethod
     def _build_default_backend() -> AudioSemanticBackend:
         backend_choice = os.environ.get("AUDIO_SEMANTIC_BACKEND", "whisper_librosa")
-        if backend_choice.startswith("whisper"):
+        has_deps = _try_import("librosa") is not None and _try_import("whisper") is not None
+        if backend_choice.startswith("whisper") and has_deps:
             model_name = os.environ.get("AUDIO_SEMANTIC_WHISPER_MODEL", "tiny")
             seed = int(os.environ.get("AUDIO_SEMANTIC_SEED", "42"))
             return WhisperLibrosaBackend(model_name=model_name, seed=seed)
@@ -460,6 +461,7 @@ class AudioSemanticService:
             "audio_semantic_cache_key": cache_key,
             "backend_info": backend_meta,
             "speed_change_limit": SPEED_CHANGE_LIMIT,
+            "backend_type": getattr(self.backend, "backend_type", "stub"),
         }
         summary = raw_summary.model_copy(
             update={

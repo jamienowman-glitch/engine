@@ -77,3 +77,17 @@ class TenantAnalyticsConfig(BaseModel):
     extra: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+
+class TenantMode(BaseModel):
+    """Control-plane record for tenant operational mode (enterprise/saas/lab).
+    
+    Modes are persisted records owned by t_system; they are metadata
+    that can be attached to tenants to indicate deployment/operational context.
+    No behavior changes in Phase 0; mode is read-only metadata.
+    """
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str  # e.g. "enterprise", "saas", "lab"
+    description: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)

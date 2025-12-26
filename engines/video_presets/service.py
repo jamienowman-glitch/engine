@@ -1,10 +1,25 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from engines.config import runtime_config
 from engines.video_presets.models import FilterPreset, MotionPreset
 from engines.video_timeline.models import Keyframe, ParameterAutomation, Filter
+import uuid
+from pydantic import BaseModel, Field
+
+class VideoTemplate(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    tenant_id: str
+    env: str
+    name: str
+    description: Optional[str] = None
+    render_profile: str
+    filter_preset_id: Optional[str] = None
+    motion_preset_id: Optional[str] = None
+    # Potentially other layout info, but strictly speaking "Social Templates" usually bundle look + motion + format
+    tags: List[str] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 try:
     from google.cloud import firestore  # type: ignore
@@ -37,11 +52,24 @@ class PresetRepository:
     def delete_motion(self, preset_id: str) -> None:
         raise NotImplementedError
 
+    def create_template(self, template: VideoTemplate) -> VideoTemplate:
+        raise NotImplementedError
+
+    def list_templates(self, tenant_id: str, env: Optional[str] = None, tag: Optional[str] = None) -> List[VideoTemplate]:
+        raise NotImplementedError
+
+    def get_template(self, template_id: str) -> Optional[VideoTemplate]:
+        raise NotImplementedError
+
+    def delete_template(self, template_id: str) -> None:
+        raise NotImplementedError
+
 
 class InMemoryPresetRepository(PresetRepository):
     def __init__(self) -> None:
         self.filter_presets: Dict[str, FilterPreset] = {}
         self.motion_presets: Dict[str, MotionPreset] = {}
+        self.templates: Dict[str, VideoTemplate] = {}
 
     def create_filter(self, preset: FilterPreset) -> FilterPreset:
         self.filter_presets[preset.id] = preset
@@ -78,6 +106,24 @@ class InMemoryPresetRepository(PresetRepository):
 
     def delete_motion(self, preset_id: str) -> None:
         self.motion_presets.pop(preset_id, None)
+
+    def create_template(self, template: VideoTemplate) -> VideoTemplate:
+        self.templates[template.id] = template
+        return template
+
+    def list_templates(self, tenant_id: str, env: Optional[str] = None, tag: Optional[str] = None) -> List[VideoTemplate]:
+        results = [t for t in self.templates.values() if t.tenant_id == tenant_id]
+        if env:
+            results = [t for t in results if t.env == env]
+        if tag:
+            results = [t for t in results if tag in (t.tags or [])]
+        return results
+
+    def get_template(self, template_id: str) -> Optional[VideoTemplate]:
+        return self.templates.get(template_id)
+
+    def delete_template(self, template_id: str) -> None:
+        self.templates.pop(template_id, None)
 
 
 class FirestorePresetRepository(PresetRepository):
@@ -141,6 +187,32 @@ class FirestorePresetRepository(PresetRepository):
         if not tenant:
             return
         self._col(tenant, "video_motion_presets").document(preset_id).delete()
+
+    def create_template(self, template: VideoTemplate) -> VideoTemplate:
+        self._col(template.tenant_id, "video_templates").document(template.id).set(template.model_dump())
+        return template
+
+    def list_templates(self, tenant_id: str, env: Optional[str] = None, tag: Optional[str] = None) -> List[VideoTemplate]:
+        docs = self._col(tenant_id, "video_templates").where("tenant_id", "==", tenant_id).stream()
+        results = [VideoTemplate(**d.to_dict()) for d in docs]
+        if env:
+            results = [t for t in results if t.env == env]
+        if tag:
+            results = [t for t in results if tag in (t.tags or [])]
+        return results
+
+    def get_template(self, template_id: str) -> Optional[VideoTemplate]:
+        tenant = runtime_config.get_tenant_id()
+        if not tenant:
+            return None
+        snap = self._col(tenant, "video_templates").document(template_id).get()
+        return VideoTemplate(**snap.to_dict()) if snap and snap.exists else None
+
+    def delete_template(self, template_id: str) -> None:
+        tenant = runtime_config.get_tenant_id()
+        if not tenant:
+            return
+        self._col(tenant, "video_templates").document(template_id).delete()
 
 def _built_in_filter_presets() -> List[FilterPreset]:
     presets = []
@@ -364,7 +436,63 @@ def _built_in_motion_presets() -> List[MotionPreset]:
             meta={"render_profiles": ["social_1080p_h264", "youtube_4k_h264"]},
         )
     )
+    
+    # Micro-Animations
+    for dur in [500, 1000]:
+        presets.append(MotionPreset(tenant_id="built_in", env="global", name=f"pop_{dur}", description=f"Pop in over {dur}ms", duration_ms=dur, tracks=[
+            ParameterAutomation(tenant_id="built_in", env="global", target_type="clip", target_id="", property="scale", keyframes=_pop_keyframes(dur))
+        ], tags=["pop", "built_in"]))
+        
+        presets.append(MotionPreset(tenant_id="built_in", env="global", name=f"pulse_{dur}", description=f"Pulse scale over {dur}ms", duration_ms=dur, tracks=[
+            ParameterAutomation(tenant_id="built_in", env="global", target_type="clip", target_id="", property="scale", keyframes=_pulse_keyframes(dur))
+        ], tags=["pulse", "built_in"]))
+
+        presets.append(MotionPreset(tenant_id="built_in", env="global", name=f"zoom_in_{dur}", description=f"Zoom in 20% over {dur}ms", duration_ms=dur, tracks=[
+            ParameterAutomation(tenant_id="built_in", env="global", target_type="clip", target_id="", property="scale", keyframes=_zoom_in_keyframes(dur))
+        ], tags=["zoom", "built_in"]))
+
     return presets
+
+
+def _built_in_templates() -> List[VideoTemplate]:
+    templates = []
+    
+    # Vlog 4:3
+    templates.append(VideoTemplate(
+        tenant_id="built_in",
+        env="global",
+        name="vlog_4_3",
+        description="4:3 Vlog style with moderate shake and punchy look",
+        render_profile="social_4_3_h264",
+        filter_preset_id="style_vlog",
+        motion_preset_id="shake_1",
+        tags=["vlog", "social", "4:3", "built_in"]
+    ))
+    
+    # Social 1:1
+    templates.append(VideoTemplate(
+        tenant_id="built_in",
+        env="global",
+        name="social_square_punchy",
+        description="Square 1:1 format with high contrast and pop animation",
+        render_profile="social_1_1_h264",
+        filter_preset_id="style_punchy",
+        motion_preset_id="pop_500",
+        tags=["social", "square", "1:1", "built_in"]
+    ))
+
+    # Cinematic Landscape
+    templates.append(VideoTemplate(
+        tenant_id="built_in",
+        env="global",
+        name="cinematic_pan",
+        description="Cinematic look with slow pan",
+        render_profile="social_1080p_h264",
+        filter_preset_id="style_cinematic",
+        motion_preset_id="steady_pan_1800",
+        tags=["cinematic", "landscape", "built_in"]
+    ))
+    return templates
 
 
 def _gentle_pan_keyframes(duration_ms: int, axis: str) -> List[Keyframe]:
@@ -373,10 +501,48 @@ def _gentle_pan_keyframes(duration_ms: int, axis: str) -> List[Keyframe]:
     return [Keyframe(time_ms=t, value=v, interpolation="ease_in_out") for t, v in zip(steps, values)]
 
 
+
 def _gentle_zoom_keyframes(duration_ms: int) -> List[Keyframe]:
     steps = [0, duration_ms // 2, duration_ms]
     values = [0.97, 1.0, 1.03]
     return [Keyframe(time_ms=t, value=v, interpolation="ease_in_out") for t, v in zip(steps, values)]
+
+
+def _pop_keyframes(duration_ms: int) -> List[Keyframe]:
+    # 0 -> 1.1 -> 1.0 (overshoot)
+    steps = [0, int(duration_ms * 0.7), duration_ms]
+    values = [0.0, 1.1, 1.0]
+    return [Keyframe(time_ms=t, value=v, interpolation="ease_out") for t, v in zip(steps, values)]
+
+
+def _pulse_keyframes(duration_ms: int) -> List[Keyframe]:
+    # 1.0 -> 1.1 -> 1.0
+    steps = [0, duration_ms // 2, duration_ms]
+    values = [1.0, 1.1, 1.0]
+    return [Keyframe(time_ms=t, value=v, interpolation="ease_in_out") for t, v in zip(steps, values)]
+
+
+def _slide_keyframes(duration_ms: int, direction: str) -> List[Keyframe]:
+    # 0 -> 1 (progress)? No, actual position values.
+    # Assuming normalized coordinates 0-1? Or arbitrary?
+    # Position automation usually depends on canvas size, but if normalized (0.0-1.0):
+    # Slide In: offscreen to center.
+    # Slide Out: center to offscreen.
+    # "Slide" generic: usually translation.
+    # Let's assume "Slide Entry" (offscreen to position).
+    # If x: -0.5 -> 0.0 (assuming relative or absolute?)
+    # Timeline model has position: Optional[dict] = None # {"x":..., "y":...}
+    # If we automate "position_x", likely it's relative offset or absolute?
+    # Usually absolute normalized or pixels?
+    # Let's assume "slide" is a small movement for emphasis, not entry/exit.
+    # "Slide": move slightly.
+    start = 0.0
+    end = 0.2 if direction in ("right", "down") else -0.2
+    return [Keyframe(time_ms=0, value=start, interpolation="ease_in_out"), Keyframe(time_ms=duration_ms, value=end, interpolation="linear")]
+
+
+def _zoom_in_keyframes(duration_ms: int) -> List[Keyframe]:
+    return [Keyframe(time_ms=0, value=1.0, interpolation="linear"), Keyframe(time_ms=duration_ms, value=1.2, interpolation="linear")]
 
 
 def _build_pan_preset(duration_ms: int) -> MotionPreset:
@@ -414,6 +580,7 @@ class PresetService:
         self.repo = repo or self._default_repo()
         self._built_in_motion = _built_in_motion_presets()
         self._built_in_filters = _built_in_filter_presets()
+        self._built_in_templates = _built_in_templates()
 
     def _default_repo(self) -> PresetRepository:
         try:
@@ -462,6 +629,27 @@ class PresetService:
 
     def delete_motion_preset(self, preset_id: str) -> None:
         self.repo.delete_motion(preset_id)
+
+    # Templates
+    def create_template(self, template: VideoTemplate) -> VideoTemplate:
+        return self.repo.create_template(template)
+
+    def list_templates(self, tenant_id: str, env: Optional[str] = None, tag: Optional[str] = None) -> List[VideoTemplate]:
+        user_templates = self.repo.list_templates(tenant_id, env=env, tag=tag)
+        built_ins = [t for t in self._built_in_templates if (not tag or tag in (t.tags or []))]
+        return built_ins + user_templates
+
+    def get_template(self, template_id: str) -> Optional[VideoTemplate]:
+        template = self.repo.get_template(template_id)
+        if template:
+            return template
+        for t in self._built_in_templates:
+            if t.id == template_id or t.name == template_id:
+                return t
+        return None
+
+    def delete_template(self, template_id: str) -> None:
+        self.repo.delete_template(template_id)
 
 
 _default_service: Optional[PresetService] = None

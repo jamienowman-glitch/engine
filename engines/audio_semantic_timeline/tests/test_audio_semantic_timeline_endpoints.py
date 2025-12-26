@@ -20,8 +20,17 @@ from engines.video_timeline.models import VideoProject, Sequence, Track, Clip
 from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, get_timeline_service, set_timeline_service
 
 
+class DummyStorage:
+    def upload_file(self, file_path: Path, bucket: str, key: str) -> str:
+        return f"gs://{bucket}/{key}"
+    def get_signed_url(self, bucket: str, key: str, expires_in: int = 3600) -> str:
+        return f"https://storage.googleapis.com/{bucket}/{key}"
+    def delete_file(self, bucket: str, key: str) -> None:
+        pass
+
+
 def setup_module(_module):
-    set_media_service(MediaService(repo=InMemoryMediaRepository()))
+    set_media_service(MediaService(repo=InMemoryMediaRepository(), storage=DummyStorage()))
     set_audio_semantic_service(AudioSemanticService(backend=StubAudioSemanticBackend()))
     set_timeline_service(TimelineService(repo=InMemoryTimelineRepository()))
 
@@ -52,7 +61,7 @@ def _seed_clip(asset_id: str, speed: float = 1.0) -> Clip:
 
 
 def test_audio_semantic_analyze_and_get():
-    media_service = MediaService(repo=InMemoryMediaRepository())
+    media_service = MediaService(repo=InMemoryMediaRepository(), storage=DummyStorage())
     set_media_service(media_service)
     set_audio_semantic_service(AudioSemanticService(backend=StubAudioSemanticBackend()))
     set_timeline_service(TimelineService(repo=InMemoryTimelineRepository()))
@@ -98,7 +107,7 @@ def test_audio_semantic_analyze_and_get():
 
 
 def test_audio_semantic_by_clip_slicing():
-    media_service = MediaService(repo=InMemoryMediaRepository())
+    media_service = MediaService(repo=InMemoryMediaRepository(), storage=DummyStorage())
     set_media_service(media_service)
     set_timeline_service(TimelineService(repo=InMemoryTimelineRepository()))
     set_audio_semantic_service(AudioSemanticService(backend=StubAudioSemanticBackend()))
@@ -131,7 +140,7 @@ def test_audio_semantic_by_clip_slicing():
 
 
 def test_audio_semantic_context_validation():
-    media_service = MediaService(repo=InMemoryMediaRepository())
+    media_service = MediaService(repo=InMemoryMediaRepository(), storage=DummyStorage())
     set_media_service(media_service)
     service = AudioSemanticService(backend=StubAudioSemanticBackend())
     set_audio_semantic_service(service)
@@ -159,7 +168,7 @@ def test_audio_semantic_context_validation():
 
 
 def test_missing_dependency_uses_stub(monkeypatch):
-    media_service = MediaService(repo=InMemoryMediaRepository())
+    media_service = MediaService(repo=InMemoryMediaRepository(), storage=DummyStorage())
     set_media_service(media_service)
     monkeypatch.setattr("engines.audio_semantic_timeline.service._try_import", lambda name: None)
     service = AudioSemanticService()

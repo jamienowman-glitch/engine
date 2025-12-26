@@ -1,0 +1,136 @@
+Alright, here’s something you can straight copy-paste into the doc.
+I’ll keep it tight and in your structure.
+
+⸻
+
+NORTHSTAR OS – REPO + BUILD CONTRACT
+
+1. Repos (DO NOT FREESTYLE)
+
+We use four repos. Every agent and dev stays in their lane:
+	•	northstar-core
+	•	All websites + apps (SQUARED, CUBED, etc.).
+	•	UltreX (the builder) lives here under SQUARED.
+	•	Agent runtime, registries, cards, and API surface also live here.
+	•	northstar-ui
+	•	Library of basic UI elements / atoms / layouts used by all apps.
+	•	Optional early versions of UltreX components can live here, but not the live UltreX app.
+	•	northstar-engines
+	•	All engines and rules that underpin the OS (UI layout engines, marketing engines, scoring, etc.).
+	•	No routing, no pages – just brains.
+	•	northstar-connectors
+	•	All external connectors: Shopify, YouTube, Twitter, Google Ads, etc.
+	•	Used by engines, not directly by the front end.
+
+⸻
+
+2. northstar-core – ROUTING SPINE (APPS + PAGES)
+
+This is the canonical tree for the live site + apps:
+
+northstar-core/
+  squared/                            # /squared/...
+    index.html                        # /squared
+
+    caidence/                         # /squared/caidence/...
+      app/
+        index.html                    # /squared/caidence/app/
+      agent-marketing-for-social.html # /squared/caidence/agent-marketing-for-social.html
+
+    ultrex/                           # UltreX (builder) lives ON SQUARED
+      app/
+        index.html                    # /squared/ultrex/app/
+
+  cubed/                              # /cubed/...
+    index.html                        # /cubed
+    creaite/                          # /cubed/creaite/...
+      app/
+        index.html                    # /cubed/creaite/app/
+
+  runtime/                            # agent runtimes actually used in PROD
+    adk/
+    langgraph/
+
+  registry/                           # registries + cards
+    agents/
+    flows/
+    ui_atoms/
+    surfaces/
+
+  config/
+    env/
+    routes/
+
+	•	UltreX URL: /squared/ultrex/app/
+	•	All user-facing marketing + app routes live under northstar-core in this shape.
+	•	Registry + runtime are also here so core stays the “single source of truth”.
+
+⸻
+
+3. northstar-ui – UI LIBRARY ONLY
+
+northstar-ui/
+  atoms/
+    buttons/
+    cards/
+    tables/
+    headers/
+    ...
+  layouts/
+    marketing_sections/
+    dashboards/
+    auth_flows/
+  ultrex-proto/        # optional: prototype components for the builder
+
+	•	This repo does not contain live pages.
+	•	Apps in northstar-core (including UltreX) import atoms/layouts from here.
+	•	UI-only agents work here so they can’t accidentally trash core routes.
+
+⸻
+
+4. northstar-engines – OS BRAINS
+
+northstar-engines/
+  ui_layout/
+  marketing/
+  social/
+  scoring/
+  ...
+
+	•	All core logic and engines live here.
+	•	northstar-core/runtime calls into these engines.
+	•	No HTML, no routing.
+
+⸻
+
+5. northstar-connectors – EXTERNAL PIPES
+
+northstar-connectors/
+  shopify/
+  youtube/
+  twitter/
+  google-ads/
+  ...
+
+	•	One folder per external system.
+	•	Engines in northstar-engines use these; northstar-core only sees them through engines.
+
+⸻
+
+6. BUILD & DEPLOY (IN HUMAN TERMS)
+	•	You edit code and files inside these repos (mainly northstar-core and northstar-ui).
+	•	A build step (e.g. npm run build) just means:
+“Take my dev files, bundle/minify them, and spit out a clean folder that can be served.”
+	•	For northstar-core:
+	•	The build turns your squared/, cubed/, etc. into a deployable bundle.
+	•	That bundle goes into a container (Docker) and is run on Cloud Run (or similar).
+	•	The folder structure above (squared/caidence/app etc.) is the logical routing, even if the built assets are packed up.
+	•	For northstar-ui:
+	•	The build produces a library/package of atoms/layouts.
+	•	northstar-core and UltreX then import from that built library rather than raw source.
+
+You don’t need to care about the low-level Docker stuff – just remember:
+
+Repos are where you edit.
+Builds are what we deploy.
+The routing spine in northstar-core is the thing nobody fucks with.

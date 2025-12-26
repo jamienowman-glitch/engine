@@ -206,10 +206,11 @@ class ClassificationRuleSet:
         return SemanticType.UNKNOWN, [], 0.0
 
 
-def infer_levels_from_elevations(entities: List[Entity]) -> Dict[float, str]:
+def infer_levels_from_elevations(entities: List[Entity]) -> Tuple[Dict[float, str], Optional[str]]:
     """
     Infer building levels from Z-coordinates using clustering.
-    Returns dict mapping elevation (z) to level_id.
+    Returns (level_map, warning_message).
+    level_map maps elevation (z) to level_id.
     """
     elevations = []
     for entity in entities:
@@ -218,7 +219,8 @@ def infer_levels_from_elevations(entities: List[Entity]) -> Dict[float, str]:
             elevations.append(z)
     
     if not elevations:
-        return {0.0: "L0"}
+        # Fallback with warning
+        return {0.0: "L0"}, "No entity elevations found; defaulting to L0 at 0.0"
     
     # Simple clustering: group similar Z values
     elevations = sorted(set(elevations))
@@ -238,7 +240,7 @@ def infer_levels_from_elevations(entities: List[Entity]) -> Dict[float, str]:
             # Use existing level
             levels[z] = f"L{level_count - 1}"
     
-    return levels
+    return levels, None
 
 
 def deterministic_semantic_id(entity_id: str, semantic_type: SemanticType) -> str:

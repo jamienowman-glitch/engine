@@ -37,6 +37,8 @@ async def ingest_cad_file(
     tolerance: float | None = Form(None),
     snap_to_grid: bool | None = Form(None),
     grid_size: float | None = Form(None),
+    tenant_id: str | None = Form(None),
+    env: str | None = Form(None),
     payload: CadIngestRequest | None = Body(None),
     request_context: RequestContext = Depends(get_request_context),
     auth_context: AuthContext = Depends(get_auth_context),
@@ -54,12 +56,15 @@ async def ingest_cad_file(
     - tolerance: Healing tolerance (default 0.001)
     - snap_to_grid: Enable grid snapping
     - grid_size: Grid size for snapping
+    - tenant_id: Optional, must match header if provided
+    - env: Optional, must match header if provided
     """
     service = get_cad_ingest_service()
     
     try:
         if file:
             # Multipart upload
+            assert_context_matches(request_context, tenant_id, env)
             content = await file.read()
             request_obj = CadIngestRequest(
                 file_uri=source_uri or file.filename or "uploaded_file",
@@ -116,6 +121,8 @@ async def ingest_cad_file(
                 detail="Remote source_uri ingest not yet implemented",
             )
     
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:

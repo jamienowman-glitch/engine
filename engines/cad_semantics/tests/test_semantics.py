@@ -111,7 +111,7 @@ class TestLevelInference:
             bbox=BoundingBox(min=Vector3(x=0, y=0, z=0), max=Vector3(x=1, y=1, z=0)),
         )
         
-        levels = infer_levels_from_elevations([entity])
+        levels, _ = infer_levels_from_elevations([entity])
         assert 0.0 in levels
         assert levels[0.0] == "L0"
     
@@ -134,7 +134,7 @@ class TestLevelInference:
             bbox=BoundingBox(min=Vector3(x=0, y=0, z=3), max=Vector3(x=1, y=1, z=3)),
         )
         
-        levels = infer_levels_from_elevations([entity1, entity2])
+        levels, _ = infer_levels_from_elevations([entity1, entity2])
         assert 0.0 in levels
         assert 3.0 in levels
         assert levels[0.0] != levels[3.0]

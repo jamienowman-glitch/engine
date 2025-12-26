@@ -54,6 +54,7 @@ class Track(Timestamped):
     muted: bool = False
     hidden: bool = False
     audio_role: Optional[Literal["generic", "dialogue", "music", "fx", "ambience"]] = "generic"
+    video_role: Optional[Literal["main", "b-roll", "overlay", "generic"]] = "generic"
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -78,6 +79,7 @@ class Clip(Timestamped):
     crop: Optional[dict] = None  # {"x":..., "y":..., "w":..., "h":...}
     stabilise: bool = False
     optical_flow: bool = False
+    alignment_applied: bool = False
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 

@@ -59,7 +59,13 @@ class VideoAssistService:
                     )
             if not candidate_segments:
                 candidate_segments = self._fallback_segments(asset_ids)
-            candidate_segments.sort(key=lambda s: s["score"], reverse=True)
+            
+            # Deterministic Sort: Primary by Score (DESC), Secondary by AssetID (ASC)
+            # Python's sort is stable, so we sort by secondary key first, then primary.
+            # OR use tuple key. (score, negate_id?) No, ID is string.
+            # key=lambda s: (-s["score"], s["asset_id"]) works for descending score, ascending ID.
+            candidate_segments.sort(key=lambda s: (-s["score"], s["asset_id"]))
+            
             self._highlight_cache[cache_key] = list(candidate_segments)
 
         # 3. Assemble Sequence
@@ -129,6 +135,9 @@ class VideoAssistService:
             if art.kind != "audio_semantic_timeline":
                 continue
             for evt in art.meta.get("events", []):
+                # Strict filtering for speech
+                if evt.get("kind") != "speech":
+                    continue
                 start_ms = evt.get("start_ms")
                 end_ms = evt.get("end_ms")
                 if start_ms is None or end_ms is None or end_ms <= start_ms:

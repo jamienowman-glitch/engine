@@ -140,8 +140,21 @@ def build_spatial_graph(elements: List[SemanticElement]) -> SpatialGraph:
                 graph.edges.append(edge)
                 graph.connectivity_edge_count += 1
     
-    # Compute graph hash (deterministic)
-    graph_repr = f"{len(graph.nodes)}:{len(graph.edges)}:{graph.adjacency_edge_count}"
+    # Compute graph hash (deterministic and content-based)
+    # Sort nodes and edges for consistent hashing
+    sorted_node_ids = sorted(n.node_id for n in graph.nodes)
+    
+    # Edges sorted by (from, to, type)
+    sorted_edge_keys = sorted(
+        f"{e.from_node_id}:{e.to_node_id}:{e.edge_type.value}" 
+        for e in graph.edges
+    )
+    
+    # Combined representation
+    nodes_str = ",".join(sorted_node_ids)
+    edges_str = ",".join(sorted_edge_keys)
+    graph_repr = f"nodes:[{nodes_str}]|edges:[{edges_str}]"
+    
     graph.graph_hash = hashlib.sha256(graph_repr.encode()).hexdigest()[:16]
     
     return graph

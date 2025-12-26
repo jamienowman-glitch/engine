@@ -1,14 +1,22 @@
+
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from engines.video_timeline.models import Clip, Filter, FilterStack
 from engines.video_render.planner import build_transition_plans
 from engines.video_render.service import RenderService
 from engines.video_presets.service import _built_in_filter_presets
-
+from engines.media_v2.service import set_media_service, MediaService, InMemoryMediaRepository, LocalMediaStorage
+from engines.video_timeline.service import set_timeline_service, TimelineService, InMemoryTimelineRepository
 
 class TestV02Features(unittest.TestCase):
+    def setUp(self):
+        self.media_service = MediaService(repo=InMemoryMediaRepository(), storage=LocalMediaStorage())
+        self.timeline_service = TimelineService(repo=InMemoryTimelineRepository())
+        set_media_service(self.media_service)
+        set_timeline_service(self.timeline_service)
+
     def test_filter_chain_extended(self):
         service = RenderService(job_repo=MagicMock())
 
@@ -61,7 +69,6 @@ class TestV02Features(unittest.TestCase):
 
     def test_transition_catalog_aliases(self):
         clip_a = Clip(
-            id="c1",
             tenant_id="t1",
             env="dev",
             track_id="t1",
@@ -71,7 +78,6 @@ class TestV02Features(unittest.TestCase):
             start_ms_on_timeline=0,
         )
         clip_b = Clip(
-            id="c2",
             tenant_id="t1",
             env="dev",
             track_id="t1",
@@ -87,10 +93,11 @@ class TestV02Features(unittest.TestCase):
             sequence_id="seq1",
             type="slide_up",
             duration_ms=500,
-            from_clip_id="c1",
-            to_clip_id="c2",
+            from_clip_id=clip_a.id,
+            to_clip_id=clip_b.id,
+            meta={}  # Added meta
         )
-        plans = build_transition_plans([transition], {"c1": clip_a, "c2": clip_b})
+        plans = build_transition_plans([transition], {clip_a.id: clip_a, clip_b.id: clip_b})
         self.assertEqual(len(plans), 1)
         plan = plans[0]
         self.assertEqual(plan.video_alias, "slideup")
@@ -112,7 +119,6 @@ class TestV02Features(unittest.TestCase):
 
     def test_invalid_transition_type_raises(self):
         clip_a = Clip(
-            id="c1",
             tenant_id="t1",
             env="dev",
             track_id="t1",
@@ -122,7 +128,6 @@ class TestV02Features(unittest.TestCase):
             start_ms_on_timeline=0,
         )
         clip_b = Clip(
-            id="c2",
             tenant_id="t1",
             env="dev",
             track_id="t1",
@@ -138,11 +143,12 @@ class TestV02Features(unittest.TestCase):
             sequence_id="seq1",
             type="spin",
             duration_ms=500,
-            from_clip_id="c1",
-            to_clip_id="c2",
+            from_clip_id=clip_a.id,
+            to_clip_id=clip_b.id,
+            meta={} # Added meta
         )
         with self.assertRaises(ValueError):
-            build_transition_plans([transition], {"c1": clip_a, "c2": clip_b})
+            build_transition_plans([transition], {clip_a.id: clip_a, clip_b.id: clip_b})
 
 
 if __name__ == "__main__":

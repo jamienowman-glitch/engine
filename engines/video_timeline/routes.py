@@ -215,3 +215,50 @@ def update_automation(automation_id: str, automation: ParameterAutomation):
 def delete_automation(automation_id: str):
     get_timeline_service().delete_automation(automation_id)
     return {"status": "deleted", "id": automation_id}
+
+
+# T01.2 Edit Ops Routes
+@router.post("/clips/{clip_id}/trim", response_model=Clip)
+def trim_clip(clip_id: str, new_in_ms: float = Body(...), new_out_ms: float = Body(...), ripple: bool = Body(False)):
+    try:
+        return get_timeline_service().trim_clip(clip_id, new_in_ms, new_out_ms, ripple)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/clips/{clip_id}/split", response_model=Clip)
+def split_clip(clip_id: str, split_time_ms: float = Body(...)):
+    try:
+        return get_timeline_service().split_clip(clip_id, split_time_ms)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/clips/{clip_id}/move", response_model=Clip)
+def move_clip(clip_id: str, new_start_ms: float = Body(...), track_id: Optional[str] = Body(None), ripple: bool = Body(False)):
+    try:
+        return get_timeline_service().move_clip(clip_id, new_start_ms, track_id, ripple)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# T01.4 Multicam
+@router.post("/projects/{project_id}/multicam/promote", response_model=Sequence)
+def promote_multicam(project_id: str, name: str = Body(...), result: dict = Body(...)):
+    try:
+        return get_timeline_service().promote_multicam_to_sequence(project_id, name, result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# T01.5 Assist
+@router.post("/sequences/{sequence_id}/assist/ingest", response_model=Track)
+def ingest_assist(sequence_id: str, result: dict = Body(...)):
+    try:
+        return get_timeline_service().ingest_assist_highlights(sequence_id, result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# T01.5 Focus
+@router.post("/clips/{clip_id}/focus/apply", response_model=List[ParameterAutomation])
+def apply_focus(clip_id: str, result: dict = Body(...)):
+    try:
+        return get_timeline_service().apply_focus_automation(clip_id, result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

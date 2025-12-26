@@ -18,6 +18,18 @@ _TRANSITION_CATALOG: Dict[str, Dict[str, str]] = {
 }
 
 
+TRANSITION_PRESETS: Dict[str, Dict[str, object]] = {
+    "quick_crossfade": {"type": "crossfade", "duration_ms": 250},
+    "standard_crossfade": {"type": "crossfade", "duration_ms": 500},
+    "slow_crossfade": {"type": "crossfade", "duration_ms": 1000},
+    "dip_black": {"type": "dip_to_black", "duration_ms": 400},
+    "dip_white": {"type": "dip_to_white", "duration_ms": 400},
+    "wipes_left": {"type": "wipe_left", "duration_ms": 600},
+    "wipes_right": {"type": "wipe_right", "duration_ms": 600},
+    "slide_entry": {"type": "push_left", "duration_ms": 500},
+}
+
+
 def _clip_timeline_duration_ms(clip: Optional[Clip]) -> float:
     if not clip:
         return 0.0
@@ -55,6 +67,7 @@ class TransitionPlan:
     audio_filter: str
     video_alias: str
     audio_alias: str
+    preset_id: Optional[str] = None
 
     def to_meta(self) -> Dict[str, object]:
         return {
@@ -67,18 +80,40 @@ class TransitionPlan:
             "order": self.order,
             "video_alias": self.video_alias,
             "audio_alias": self.audio_alias,
+            "preset_id": self.preset_id,
         }
 
 
 def build_transition_plans(transitions: Iterable[Transition], clips: Mapping[str, Clip]) -> List[TransitionPlan]:
     raw_plans: List[TransitionPlan] = []
     for transition in transitions:
-        if transition.type == "none" or transition.duration_ms <= 0:
+        t_type = transition.type
+        t_duration = transition.duration_ms
+        preset_id = transition.meta.get("preset_id")
+        
+        # Resolve preset from meta if present
+        if preset_id and preset_id in TRANSITION_PRESETS:
+            preset = TRANSITION_PRESETS[preset_id]
+            # Validate consistency (optional, but helpful)
+            if str(preset["type"]) != t_type:
+                # If types conflict, we could warn, or let preset override?
+                # But since we base 'mapping' on t_type later, we should update t_type OR ensure they match.
+                # Planner's job is to build the graph. If preset implies a differnt ffmpeg filter, we should use preset's type.
+                # However, catalog lookup relies on t_type.
+                 t_type = str(preset["type"])
+            
+            if t_duration is None or t_duration <= 0:
+                t_duration = float(preset["duration_ms"])
+        
+        if t_type == "none" or (t_duration is not None and t_duration <= 0):
             continue
-        mapping = _TRANSITION_CATALOG.get(transition.type)
+            
+        mapping = _TRANSITION_CATALOG.get(t_type)
         if not mapping:
-            raise ValueError(f"Unsupported transition type: {transition.type}")
-        duration_ms = max(1.0, float(transition.duration_ms))
+            # Fallback or strict error
+            raise ValueError(f"Unsupported transition type: {t_type}")
+
+        duration_ms = max(1.0, float(t_duration) if t_duration is not None else 500.0) # Default 500ms fallback
         from_clip = clips.get(transition.from_clip_id)
         to_clip = clips.get(transition.to_clip_id)
         for clip in (from_clip, to_clip):
@@ -91,7 +126,7 @@ def build_transition_plans(transitions: Iterable[Transition], clips: Mapping[str
         audio_filter = f"{mapping['audio']}=d={duration_sec:.3f}"
         plan = TransitionPlan(
             transition_id=transition.id,
-            type=transition.type,
+            type=t_type,
             from_clip_id=transition.from_clip_id,
             to_clip_id=transition.to_clip_id,
             duration_ms=duration_ms,
@@ -101,6 +136,7 @@ def build_transition_plans(transitions: Iterable[Transition], clips: Mapping[str
             audio_filter=audio_filter,
             video_alias=mapping["xfade"],
             audio_alias=mapping["audio"],
+            preset_id=preset_id,
         )
         raw_plans.append(plan)
 

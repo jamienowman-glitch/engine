@@ -26,13 +26,41 @@ class PreviewService:
             preview_warnings.append("no_tracks_for_preview")
         elif not clip_found:
             preview_warnings.append("no_clips_for_preview")
+
+        # Proxy Verification
         try:
+            # 1. Trigger Generation
             self.render_service.ensure_proxies_for_project(seq.project_id)
+            
+            # 2. Verify Existence
+            if tracks:
+                for track in tracks:
+                    for clip in self.timeline_service.list_clips_for_track(track.id):
+                        if not clip.asset_id:
+                            continue
+                        asset = self.render_service.media_service.get_asset(clip.asset_id)
+                        if not asset or asset.kind != "video":
+                            continue
+                        
+                        artifacts = self.render_service.media_service.list_artifacts_for_asset(asset.id)
+                        # Check for any proxy kind (generic or specific)
+                        has_proxy = any(a.kind.startswith("video_proxy") for a in artifacts)
+                        if not has_proxy:
+                            preview_warnings.append(f"missing_proxy_for_clip:{clip.id}")
+                            
         except Exception as exc:
             preview_warnings.append(f"proxy_generation_failed:{exc}")
+
+        # Deterministic Profile Selection
+        # DRAFT -> draft_480p_fast
+        # QUALITY -> preview_720p_fast (default)
         requested_profile = "draft_480p_fast" if req.strategy == "DRAFT" else "preview_720p_fast"
-        backend_profile = requested_profile if requested_profile != "draft_480p_fast" else "preview_720p_fast"
+        
+        # In current design, preview service requests a "backend" profile from RenderService (dry-run).
+        # We use the requested profile directly as the backend profile.
+        backend_profile = requested_profile
         estimated_latency = 200 if requested_profile == "draft_480p_fast" else 500
+        
         from engines.video_render.models import RenderRequest
 
         r_req = RenderRequest(
@@ -46,11 +74,16 @@ class PreviewService:
         )
         res = self.render_service.render(r_req)
         render_plan = res.plan_preview
-        if requested_profile != backend_profile:
-            render_plan.profile = requested_profile
-            render_plan.meta.setdefault("preview_profile", backend_profile)
+        
+        # Ensure meta correctly reflects our intent
+        if requested_profile != render_plan.profile:
+             render_plan.profile = requested_profile
+             
+        render_plan.meta["preview_profile"] = backend_profile
+        
         if preview_warnings:
             render_plan.meta.setdefault("preview_warnings", []).extend(preview_warnings)
+        
         return PreviewResult(
             sequence_id=req.sequence_id,
             render_plan=render_plan.model_dump(),

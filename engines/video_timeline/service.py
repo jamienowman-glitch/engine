@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from engines.config import runtime_config
-from engines.video_timeline.models import Clip, FilterStack, Sequence, Track, Transition, VideoProject, ParameterAutomation
+from engines.video_timeline.models import Clip, FilterStack, Sequence, Track, Transition, VideoProject, ParameterAutomation, Keyframe
 
 try:
     from google.cloud import firestore  # type: ignore
@@ -498,8 +498,105 @@ class TimelineService:
     def delete_clip(self, clip_id: str) -> None:
         self.repo.delete_clip(clip_id)
 
+    # Edit Ops
+    def trim_clip(self, clip_id: str, new_in_ms: float, new_out_ms: float, ripple: bool = False) -> Clip:
+        clip = self.get_clip(clip_id)
+        if not clip:
+            raise ValueError(f"Clip {clip_id} not found")
+            
+        if new_out_ms <= new_in_ms:
+            raise ValueError("new_out_ms must be > new_in_ms")
+            
+        old_duration = clip.out_ms - clip.in_ms
+        new_duration = new_out_ms - new_in_ms
+        delta = new_duration - old_duration
+        
+        clip.in_ms = new_in_ms
+        clip.out_ms = new_out_ms
+        # Only start_ms stays the same for a tail trim. 
+        # For head trim, start_ms stays same? Or shifts? 
+        # Standard: trim usually just affects content window. 
+        # If ripple=True, we shift subsequent clips by delta.
+        
+        self.update_clip(clip)
+        
+        if ripple and delta != 0:
+            self._shift_track_after(clip.track_id, clip.start_ms_on_timeline + old_duration, delta)
+            
+        return clip
+
+    def split_clip(self, clip_id: str, split_time_on_timeline_ms: float) -> Clip:
+        clip = self.get_clip(clip_id)
+        if not clip:
+            raise ValueError(f"Clip {clip_id} not found")
+            
+        if not (clip.start_ms_on_timeline < split_time_on_timeline_ms < clip.start_ms_on_timeline + (clip.out_ms - clip.in_ms)):
+             raise ValueError("Split point outside clip bounds")
+             
+        # Calculate offset into asset
+        offset_ms = split_time_on_timeline_ms - clip.start_ms_on_timeline
+        split_point_in_asset = clip.in_ms + offset_ms
+        
+        # Original clip ends at split
+        old_out = clip.out_ms
+        clip.out_ms = split_point_in_asset
+        self.update_clip(clip)
+        
+        # New clip starts at split
+        new_clip = Clip(
+            tenant_id=clip.tenant_id,
+            env=clip.env,
+            user_id=clip.user_id,
+            track_id=clip.track_id,
+            asset_id=clip.asset_id,
+            artifact_id=clip.artifact_id,
+            mask_artifact_id=clip.mask_artifact_id,
+            in_ms=split_point_in_asset,
+            out_ms=old_out,
+            start_ms_on_timeline=split_time_on_timeline_ms,
+            speed=clip.speed,
+            volume_db=clip.volume_db,
+            opacity=clip.opacity,
+            blend_mode=clip.blend_mode,
+            scale_mode=clip.scale_mode,
+            position=clip.position,
+            crop=clip.crop,
+            stabilise=clip.stabilise,
+            optical_flow=clip.optical_flow,
+            alignment_applied=clip.alignment_applied,
+            meta=clip.meta.copy() if clip.meta else {}
+        )
+        return self.create_clip(new_clip)
+
+    def move_clip(self, clip_id: str, new_start_ms: float, track_id: Optional[str] = None, ripple: bool = False) -> Clip:
+        clip = self.get_clip(clip_id)
+        if not clip:
+            raise ValueError(f"Clip {clip_id} not found")
+            
+        target_track = track_id if track_id else clip.track_id
+        duration = clip.out_ms - clip.in_ms
+        
+        if ripple:
+             # Very basic ripple insert: Shift everything at insertion point to the right by duration
+             self._shift_track_after(target_track, new_start_ms, duration)
+             
+        clip.start_ms_on_timeline = new_start_ms
+        clip.track_id = target_track
+        
+        return self.update_clip(clip)
+
+    def _shift_track_after(self, track_id: str, time_threshold_ms: float, delta_ms: float):
+        clips = self.list_clips_for_track(track_id)
+        for c in clips:
+            if c.start_ms_on_timeline >= time_threshold_ms:
+                c.start_ms_on_timeline += delta_ms
+                self.update_clip(c)
+
     # Transition
     def create_transition(self, transition: Transition) -> Transition:
+        if transition.duration_ms <= 0:
+            raise ValueError("Transition duration must be greater than 0")
+        # Ensure clips exist? (Optional but good for T01.3)
         return self.repo.create_transition(transition)
 
     def list_transitions_for_sequence(self, sequence_id: str) -> List[Transition]:
@@ -515,11 +612,153 @@ class TimelineService:
         self.repo.delete_transition(transition_id)
 
     # Filter stacks
+    KNOWN_FILTERS = {
+        "color_grade", "teeth_whiten", "skin_smooth", "face_blur", "eye_enhance", "lut"
+    }
+
     def create_filter_stack(self, stack: FilterStack) -> FilterStack:
+        for f in stack.filters:
+            if f.type not in self.KNOWN_FILTERS:
+                raise ValueError(f"Unknown filter type: {f.type}")
         return self.repo.create_filter_stack(stack)
 
     def get_filter_stack_for_target(self, target_type: str, target_id: str) -> Optional[FilterStack]:
         return self.repo.get_filter_stack_for_target(target_type, target_id)
+
+    # Multicam Integration (T01.4)
+    def promote_multicam_to_sequence(self, project_id: str, name: str, multicam_result: Dict[str, Any]) -> Sequence:
+        """
+        multicam_result expected structure (from V04):
+        {
+            "cuts": [
+                {"asset_id": "a1", "start_ms": 0, "end_ms": 1000, "meta": {...}},
+                ...
+            ],
+            "meta": {"alignment_version": "v1", ...},
+            "tenant_id": "...", 
+            "env": "..."
+        }
+        """
+        tenant_id = multicam_result.get("tenant_id")
+        env = multicam_result.get("env")
+        if not tenant_id or not env:
+            raise ValueError("Multicam result missing tenant_id/env")
+            
+        seq = self.create_sequence(Sequence(
+            tenant_id=tenant_id, env=env, project_id=project_id, name=name
+        ))
+        
+        # Create Main Video Track
+        track = self.create_track(Track(
+            tenant_id=tenant_id, env=env, sequence_id=seq.id, kind="video", video_role="main"
+        ))
+        
+        timeline_cursor = 0.0
+        for cut in multicam_result.get("cuts", []):
+            duration = cut["end_ms"] - cut["start_ms"]
+            meta = cut.get("meta", {})
+            self.create_clip(Clip(
+                tenant_id=tenant_id,
+                env=env,
+                track_id=track.id,
+                asset_id=cut["asset_id"],
+                in_ms=cut["start_ms"],
+                out_ms=cut["end_ms"],
+                start_ms_on_timeline=timeline_cursor,
+                alignment_applied=True, # Assuming multicam output implies alignment
+                meta=meta
+            ))
+            timeline_cursor += duration
+            
+        return seq
+
+    # Assist Integration (T01.5)
+    def ingest_assist_highlights(self, sequence_id: str, highlights_result: Dict[str, Any]) -> Track:
+        """
+        highlights_result:
+        {
+            "segments": [
+                {"asset_id": "a1", "in_ms": 100, "out_ms": 500, "meta": {"score": 0.9}},
+                ...
+            ],
+            "tenant_id": "...", "env": "..."
+        }
+        """
+        tenant_id = highlights_result.get("tenant_id")
+        env = highlights_result.get("env")
+        if not tenant_id or not env:
+            raise ValueError("Assist result missing tenant_id/env")
+            
+        track = self.create_track(Track(
+            tenant_id=tenant_id, env=env, sequence_id=sequence_id, kind="video", video_role="b-roll", meta={"source": "assist"}
+        ))
+        
+        # Simple concatenation on new track? Or smart placement? 
+        # T01.5 DoD says "Highlight suggestions become tracks/clips". 
+        # We'll just stack them for now.
+        
+        cursor = 0.0
+        for seg in highlights_result.get("segments", []):
+            duration = seg["out_ms"] - seg["in_ms"]
+            self.create_clip(Clip(
+                tenant_id=tenant_id,
+                env=env,
+                track_id=track.id,
+                asset_id=seg["asset_id"],
+                in_ms=seg["in_ms"],
+                out_ms=seg["out_ms"],
+                start_ms_on_timeline=cursor,
+                meta=seg.get("meta", {})
+            ))
+            cursor += duration  # Assuming they are meant to be a reel
+            
+        return track
+
+    # Focus Integration (T01.5)
+    def apply_focus_automation(self, clip_id: str, focus_result: Dict[str, Any]) -> List[ParameterAutomation]:
+        """
+        focus_result:
+        {
+            "keyframes": [
+                {"time_ms": 0, "crop_x": 0.5, "crop_y": 0.3, "scale": 1.2},
+                ...
+            ],
+            "tenant_id": "...", "env": "..."
+        }
+        """
+        clip = self.get_clip(clip_id)
+        if not clip:
+            raise ValueError(f"Clip {clip_id} not found")
+            
+        created_auto = []
+        # Group keyframes by property
+        props: Dict[str, List[Keyframe]] = {
+            "crop_x": [], "crop_y": [], "scale": []
+        }
+        
+        for kf in focus_result.get("keyframes", []):
+            t = int(kf.get("time_ms", 0))
+            if "crop_x" in kf:
+                props["crop_x"].append(Keyframe(time_ms=t, value=kf["crop_x"]))
+            if "crop_y" in kf:
+                props["crop_y"].append(Keyframe(time_ms=t, value=kf["crop_y"]))
+            if "scale" in kf:
+                props["scale"].append(Keyframe(time_ms=t, value=kf["scale"]))
+                
+        for prop_name, kfs in props.items():
+            if not kfs:
+                continue
+            auto = ParameterAutomation(
+                tenant_id=clip.tenant_id,
+                env=clip.env,
+                target_type="clip",
+                target_id=clip.id,
+                property=prop_name, # type: ignore
+                keyframes=sorted(kfs, key=lambda k: k.time_ms)
+            )
+            created_auto.append(self.create_automation(auto))
+            
+        return created_auto
 
     def get_filter_stack(self, stack_id: str) -> Optional[FilterStack]:
         return self.repo.get_filter_stack(stack_id)

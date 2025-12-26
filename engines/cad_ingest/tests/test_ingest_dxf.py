@@ -25,10 +25,39 @@ class TestDxfParsing:
         
         assert model is not None
         assert model.source_format == "dxf"
-        assert model.units == UnitKind.MILLIMETER  # Default
+        assert model.units == UnitKind.MILLIMETER  # Explicit in fixture (code 4)
         assert len(model.entities) > 0
         assert len(model.layers) >= 1
     
+    def test_dxf_strict_units_missing(self):
+        """Verify ValueError when units are missing and no hint provided."""
+        # DXF header without $UNITS
+        no_units_dxf = b"""0
+SECTION
+2
+HEADER
+0
+ENDSEC
+0
+EOF
+"""
+        with pytest.raises(ValueError, match="missing unit specification"):
+            dxf_to_cad_model(no_units_dxf)
+
+    def test_dxf_strict_units_missing_with_hint(self):
+        """Verify success when units are missing but hint IS provided."""
+        no_units_dxf = b"""0
+SECTION
+2
+HEADER
+0
+ENDSEC
+0
+EOF
+"""
+        model = dxf_to_cad_model(no_units_dxf, unit_hint=UnitKind.METER)
+        assert model.units == UnitKind.METER
+
     def test_dxf_entity_count(self):
         """Verify entity count matches fixture."""
         model = dxf_to_cad_model(DXF_FLOORPLAN_FIXTURE)
@@ -182,8 +211,11 @@ class TestDxfValidation:
         """Test handling of malformed DXF."""
         invalid_content = b"not a valid dxf file"
         
-        # Should not raise, but produce empty model
-        model = dxf_to_cad_model(invalid_content)
+        # Must provide unit hint for invalid files that lack headers
+        model = dxf_to_cad_model(
+            invalid_content,
+            unit_hint=UnitKind.MILLIMETER
+        )
         assert model is not None
         assert model.source_format == "dxf"
     
@@ -191,6 +223,6 @@ class TestDxfValidation:
         """Test handling of empty DXF."""
         empty_content = b""
         
-        model = dxf_to_cad_model(empty_content)
-        assert model is not None
-        assert len(model.entities) == 0
+        # Empty file lacks units, so it must raise ValueError
+        with pytest.raises(ValueError, match="missing unit specification"):
+            dxf_to_cad_model(empty_content)

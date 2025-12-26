@@ -65,7 +65,7 @@ class CostCatalog(BaseModel):
         for record in self.rates:
             if record.element_type == element_type and record.unit_type == unit_type:
                 return record.unit_rate
-        return fallback if fallback > 0 else None
+        return fallback if fallback is not None else None
     
     def convert_currency(self, amount: float, from_curr: Currency, to_curr: Currency) -> float:
         """Convert amount between currencies using FX table."""

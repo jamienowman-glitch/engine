@@ -82,7 +82,7 @@ class VideoAnonymiseService:
             if has_faces:
                 strength = req.filter_strength if req.filter_strength is not None else DEFAULT_FILTER_STRENGTH
                 backend_version = summary.meta.get("backend_version")
-                self._add_face_blur_filter(clip.id, req, strength, backend_version)
+                self._add_face_blur_filter(clip.id, req, strength, backend_version, res.summary_artifact_id)
                 modified_clips.append(clip.id)
                 
         return AnonymiseFacesResult(
@@ -101,7 +101,9 @@ class VideoAnonymiseService:
         if context and (context.tenant_id != req.tenant_id or context.env != req.env):
             raise ValueError("tenant/env mismatch with request context")
 
-    def _add_face_blur_filter(self, clip_id: str, req: AnonymiseFacesRequest, strength: float, backend_version: Optional[str]):
+    def _add_face_blur_filter(
+        self, clip_id: str, req: AnonymiseFacesRequest, strength: float, backend_version: Optional[str], summary_id: str
+    ):
         # 3. Add Filter
         # Check existing stack
         stack = self.timeline_service.get_filter_stack_for_target("clip", clip_id)
@@ -115,18 +117,13 @@ class VideoAnonymiseService:
         # Create new filter
         new_filter = Filter(
             type="face_blur",
-            params={"strength": strength},
+            params={"strength": strength, "source_summary_id": summary_id},
             enabled=True
         )
         if backend_version:
             new_filter.params["backend_version"] = backend_version
         
         # Add to stack via service
-        # Timeline service needs `add_filter` or `update_filter_stack`.
-        # Assuming `update_filter_stack` or similar exposed.
-        # If not, we might need to modify FilterStack directly if repository allowed, but should use service.
-        # V1 timeline service usually has `update_filter_stack(stack)`.
-        
         if not stack:
             stack = FilterStack(
                 tenant_id=req.tenant_id,

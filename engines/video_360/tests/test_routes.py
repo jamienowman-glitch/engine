@@ -12,7 +12,7 @@ client = TestClient(app)
 
 def test_routes_crud():
     # Setup
-    service = Video360Service()
+    service = Video360Service(media_service=MagicMock())
     # app.dependency_overrides[get_video_360_service] = lambda: service
     # Use patch because route calls function directly
     with patch("engines.video_360.routes.get_video_360_service", return_value=service):

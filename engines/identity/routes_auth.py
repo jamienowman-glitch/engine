@@ -9,9 +9,10 @@ from engines.identity.auth_schemas import AuthTokenResponse, LoginRequest, Signu
 from engines.identity.jwt_service import default_jwt_service
 from engines.identity.auth import get_auth_context
 from engines.identity.passwords import hash_password, verify_password
-from engines.identity.models import Tenant, TenantMembership, User, TenantKeyConfig
+from engines.identity.models import Tenant, TenantMembership, User, TenantKeyConfig, TenantMode
 from engines.identity.state import identity_repo, set_identity_repo
 from uuid import uuid4
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -82,7 +83,7 @@ def bootstrap(auth=Depends(get_auth_context)):
 @router.post("/bootstrap/tenants")
 def bootstrap_tenants(x_system_key: str = Header(..., alias="X-System-Key")):
     """
-    Idempotent bootstrap for system and northstar tenants.
+    Idempotent bootstrap for system tenant and control-plane modes.
     Requires SYSTEM_BOOTSTRAP_KEY env var match.
     """
     expected_key = os.getenv("SYSTEM_BOOTSTRAP_KEY")
@@ -96,15 +97,25 @@ def bootstrap_tenants(x_system_key: str = Header(..., alias="X-System-Key")):
     if not identity_repo.get_tenant(t0_id):
         _create_tenant(name="System Control Plane", tenant_id=t0_id)
         created.append(t0_id)
-    
-    # Tenant-1: Northstar
-    # Align with northstar-dev-tenant-0-id secret if needed, but for now hardcode expected slug
-    t1_id = "t_northstar"
-    if not identity_repo.get_tenant(t1_id):
-        _create_tenant(name="Northstar Corp", tenant_id=t1_id)
-        created.append(t1_id)
+
+    # Seed control-plane modes (owned by t_system)
+    _seed_tenant_modes()
 
     return {"status": "ok", "created": created}
+
+
+def _seed_tenant_modes():
+    """Idempotent seeding of default tenant modes (enterprise, saas, lab)."""
+    default_modes = [
+        ("enterprise", "Enterprise deployment mode"),
+        ("saas", "SaaS deployment mode"),
+        ("lab", "Lab/experimental deployment mode"),
+    ]
+    for mode_name, description in default_modes:
+        if not identity_repo.get_tenant_mode_by_name(mode_name):
+            mode = TenantMode(name=mode_name, description=description)
+            identity_repo.create_tenant_mode(mode)
+
 
 
 def _issue_for_user(user: User, memberships) -> str:

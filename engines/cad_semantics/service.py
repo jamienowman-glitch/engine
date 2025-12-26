@@ -136,7 +136,10 @@ class SemanticClassificationService:
             semantic_model.elements.append(sem_elem)
         
         # Infer levels from elevations
-        level_map = infer_levels_from_elevations(cad_model.entities)
+        level_map, level_warning = infer_levels_from_elevations(cad_model.entities)
+        
+        if level_warning:
+            semantic_model.warnings.append(level_warning)
         
         # Attach level_ids to elements and create Level objects
         created_levels = set()
@@ -215,6 +218,8 @@ class SemanticClassificationService:
                 "adjacency_edges": model.spatial_graph.adjacency_edge_count,
                 "containment_edges": model.spatial_graph.containment_edge_count,
                 "connectivity_edges": model.spatial_graph.connectivity_edge_count,
+                "level_summary": {lvl.id: lvl.elevation for lvl in model.levels},
+                "warnings": model.warnings,
             },
         )
     
@@ -232,6 +237,32 @@ class SemanticClassificationService:
         """
         # Generate deterministic artifact ID
         artifact_id = f"sem_{cad_model_id}_{semantic_model.model_hash}"
+        
+        # Prepare metadata strictly required by media_v2
+        meta = {
+            "model_hash": semantic_model.model_hash,
+            "graph_hash": semantic_model.spatial_graph.graph_hash,
+            "rule_version": semantic_model.rule_version,
+            "element_count": len(semantic_model.elements),
+            "level_count": semantic_model.level_count,
+            # "warnings": semantic_model.warnings  # Optional but good
+        }
+        
+        # Validation check (runtime safety)
+        # In a real implementation this would happen inside the media service call,
+        # but we check it here to fail fast if our service logic drifts from the schema.
+        from engines.media_v2.models import DerivedArtifact
+        
+        # Mock context for validation check
+        DerivedArtifact(
+            id=artifact_id,
+            parent_asset_id=cad_model_id,
+            tenant_id="validate_tenant", # Placeholder if context not provided
+            env="validate_env",
+            kind="cad_semantics",
+            uri=f"s3://bucket/{artifact_id}.json",
+            meta=meta
+        )
         
         # TODO: Register with media_v2 infrastructure
         # For now, just return the ID

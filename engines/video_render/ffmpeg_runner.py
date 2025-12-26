@@ -22,8 +22,16 @@ class FFmpegError(RuntimeError):
         return base
 
 
+
+_HW_ENCODERS_CACHE: Optional[set[str]] = None
+
+
 def get_available_hardware_encoders() -> set[str]:
     """Detect available hardware encoders via ffmpeg -encoders."""
+    global _HW_ENCODERS_CACHE
+    if _HW_ENCODERS_CACHE is not None:
+        return _HW_ENCODERS_CACHE
+
     try:
         res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=5)
         encoders = set()
@@ -36,8 +44,10 @@ def get_available_hardware_encoders() -> set[str]:
                 encoders.add("hevc_videotoolbox")
             if "hevc_nvenc" in line:
                 encoders.add("hevc_nvenc")
+        _HW_ENCODERS_CACHE = encoders
         return encoders
     except Exception:
+        _HW_ENCODERS_CACHE = set()
         return set()
 
 

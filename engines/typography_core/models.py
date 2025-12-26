@@ -19,5 +19,10 @@ class TextLayoutRequest(BaseModel):
 
     alignment: Literal["left", "center", "right"] = "left"
     color_hex: str = "#FFFFFF"
+    color_overlay_hex: Optional[str] = None
+    color_overlay_opacity: Optional[float] = None
+    outer_glow_color_hex: Optional[str] = None
+    outer_glow_opacity: Optional[float] = None
+    outer_glow_radius_ratio: Optional[float] = None
 
     variation_settings: Dict[str, float] = Field(default_factory=dict)  # e.g. {"wght": 700}

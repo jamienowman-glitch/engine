@@ -29,7 +29,14 @@ def test_generate_shot_list():
                     env="d",
                     kind="audio_semantic_timeline",
                     uri="mem://sem",
-                    meta={"semantic_version": "sem_v1", "audio_semantic_cache_key": "cache_1"},
+                    meta={
+                        "semantic_version": "sem_v1",
+                        "audio_semantic_cache_key": "cache_1",
+                        "backend_version": "sem_v1",
+                        "backend_type": "stub",
+                        "backend_info": {},
+                        "model_used": "stub_model",
+                    },
                 )
             ]
         return []

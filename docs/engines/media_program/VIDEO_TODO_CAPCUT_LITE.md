@@ -4,6 +4,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
 
 ## Stream: Detectors / Artifacts (V01)
 - **id:** V01-DETECTOR-CPU-BACKEND  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V01_real_detectors_and_artifacts.md  
   **stream:** Detectors  
@@ -16,6 +17,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V01-REGION-ARTIFACT-SCHEMA  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V01_real_detectors_and_artifacts.md  
   **stream:** Detectors  
@@ -28,6 +30,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V01-VISUAL-META-REAL-BACKEND  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V01_real_detectors_and_artifacts.md  
   **stream:** Artifacts  
@@ -40,6 +43,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V01-CAPTIONS-WHISPER-STUB-GUARD  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V01_real_detectors_and_artifacts.md  
   **stream:** Captions  
@@ -52,6 +56,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V01-ANONYMise-BLUR-CONSUME-REGIONS  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V01_real_detectors_and_artifacts.md  
   **stream:** Anonymise  
@@ -64,6 +69,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V01-RENDER-CONSUME-ARTIFACTS  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V01_real_detectors_and_artifacts.md  
   **stream:** Artifacts  
@@ -77,6 +83,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
 
 ## Stream: FX / Quality (V02)
 - **id:** V02-TRANSITION-VALIDATION  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V02_fx_transitions_quality.md  
   **stream:** FX/Transitions  
@@ -89,6 +96,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V02-MASK-AWARE-FILTERS  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V02_fx_transitions_quality.md  
   **stream:** FX  
@@ -101,6 +109,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V02-SLOWMO-PRESETS-FALLBACK  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V02_fx_transitions_quality.md  
   **stream:** FX  
@@ -113,6 +122,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V02-STABILISE-DEFAULTS-META  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V02_fx_transitions_quality.md  
   **stream:** FX  
@@ -126,6 +136,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
 
 ## Stream: Render / Proxies / Jobs / Preview (V03)
 - **id:** V03-HW-DETECTION-FALLBACK  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V03_render_preview_hardening.md  
   **stream:** Render/Jobs  
@@ -138,6 +149,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V03-PROXY-ARTIFACT-META  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V03_render_preview_hardening.md  
   **stream:** Proxies  
@@ -150,6 +162,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V03-JOBS-RESUME-CANCEL  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V03_render_preview_hardening.md  
   **stream:** Jobs  
@@ -162,6 +175,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V03-RENDER-ERROR-TAXONOMY  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V03_render_preview_hardening.md  
   **stream:** Render/Errors  
@@ -174,6 +188,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V03-PREVIEW-PROXY-ENFORCEMENT  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V03_render_preview_hardening.md  
   **stream:** Preview  
@@ -186,6 +201,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V03-RENDER-PLAN-DETERMINISM  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V03_render_preview_hardening.md  
   **stream:** Render  
@@ -199,6 +215,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
 
 ## Stream: Multicam / Assist / Focus (V04)
 - **id:** V04-ALIGN-CROSSCORR  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V04_multicam_assist_focus.md  
   **stream:** Multicam  
@@ -211,6 +228,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V04-AUTOCUT-SEMANTIC-SCORING  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V04_multicam_assist_focus.md  
   **stream:** Multicam  
@@ -223,6 +241,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** M
 
 - **id:** V04-ASSIST-HIGHLIGHTS-SCORING  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V04_multicam_assist_focus.md  
   **stream:** Assist  
@@ -235,6 +254,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V04-FOCUS-AUTOMATION-SEMANTIC  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V04_multicam_assist_focus.md  
   **stream:** Focus  
@@ -247,6 +267,7 @@ Scope: docs-only registry of feral-worker tasks. Stay within listed folders/file
   **size:** S
 
 - **id:** V04-TIMELINE-COMPAT-FIELDS  
+  **status:** DONE
   **lane:** Video  
   **phase:** PHASE_V04_multicam_assist_focus.md  
   **stream:** Multicam/Timeline  

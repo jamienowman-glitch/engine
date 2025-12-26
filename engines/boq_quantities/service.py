@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from engines.cad_semantics.models import SemanticModel
 from engines.boq_quantities.formulas import calculate_quantity, deterministic_boq_item_id
-from engines.boq_quantities.models import BoQItem, BoQModel, BoQResponse, Scope
+from engines.boq_quantities.models import BoQItem, BoQModel, BoQResponse, Scope, UnitType
 
 
 class BoQCache:
@@ -107,6 +107,13 @@ class BoQQuantitiesService:
                     params,
                 )
                 
+                # Extract zone from attributes
+                zone = element.attributes.get("zone")
+                
+                # Deterministic scope ID based on level and zone
+                scope_key = f"{element.level_id or 'unknown'}_{zone or 'default'}"
+                scope_id = hashlib.sha256(scope_key.encode()).hexdigest()[:8]
+                
                 # Create BoQ item
                 item = BoQItem(
                     id=deterministic_boq_item_id(element.id, element.semantic_type.value),
@@ -114,7 +121,8 @@ class BoQQuantitiesService:
                     quantity=round(quantity, 3),
                     unit=unit,
                     level_id=element.level_id,
-                    scope_id=element.level_id,  # Use level as scope
+                    scope_id=scope_id,
+                    zone_tag=zone,
                     source_element_ids=[element.id],
                     source_cad_entity_ids=[element.cad_entity_id],
                     formula_used=formula,
@@ -125,10 +133,9 @@ class BoQQuantitiesService:
                 boq_model.items.append(item)
                 
                 # Track by scope
-                scope_key = element.level_id or "default"
-                if scope_key not in items_by_scope:
-                    items_by_scope[scope_key] = []
-                items_by_scope[scope_key].append(item)
+                if scope_id not in items_by_scope:
+                    items_by_scope[scope_id] = []
+                items_by_scope[scope_id].append(item)
                 
             except Exception as e:
                 # Log warning but continue
@@ -139,24 +146,44 @@ class BoQQuantitiesService:
         # Sort items deterministically
         boq_model.items.sort(key=lambda x: (x.element_type, x.id))
         
-        # Create scopes
-        for level in semantic_model.levels:
+        # Create scopes from collected items
+        # Need map of level_id -> level_name for naming
+        level_map = {l.id: l.name for l in semantic_model.levels}
+        
+        sorted_scope_ids = sorted(items_by_scope.keys())
+        
+        for s_id in sorted_scope_ids:
+            scope_items = items_by_scope[s_id]
+            if not scope_items:
+                continue
+                
+            # Infer properties from first item
+            first = scope_items[0]
+            lvl_id = first.level_id
+            z_tag = first.zone_tag
+            
+            lvl_name = level_map.get(lvl_id, "Unknown Level")
+            scope_name = f"{lvl_name}"
+            if z_tag:
+                scope_name += f" - {z_tag}"
+            
             scope = Scope(
-                scope_name=level.name,
-                level_id=level.id,
-                item_count=len(items_by_scope.get(level.id, [])),
+                scope_id=s_id,
+                scope_name=scope_name,
+                level_id=lvl_id,
+                zone_tag=z_tag,
+                item_count=len(scope_items),
             )
             
             # Calculate scope totals
-            scope_items = items_by_scope.get(level.id, [])
             for item in scope_items:
                 if item.unit.value.endswith("²"):  # Area
                     scope.total_area = (scope.total_area or 0) + item.quantity
                 elif item.unit.value.endswith("³"):  # Volume
                     scope.total_volume = (scope.total_volume or 0) + item.quantity
-                elif item.unit in ("m", "mm", "cm", "ft", "in"):  # Length
+                elif item.unit in (UnitType.M, UnitType.MM, UnitType.CM, UnitType.FT, UnitType.IN):  # Length
                     scope.total_length = (scope.total_length or 0) + item.quantity
-                elif item.unit in ("count", "no"):  # Count
+                elif item.unit in (UnitType.COUNT, UnitType.NO):  # Count
                     scope.total_count += 1
             
             boq_model.scopes.append(scope)
@@ -215,8 +242,34 @@ class BoQQuantitiesService:
         # Generate deterministic artifact ID
         artifact_id = f"boq_{semantic_model_id}_{boq_model.model_hash}"
         
+        # Construct compliant metadata
+        meta = {
+            "source_semantics_id": semantic_model_id,
+            "calc_version": calc_version,
+            "item_count": boq_model.item_count,
+            "scope_count": len(boq_model.scopes),
+            "model_hash": boq_model.model_hash,
+            # Additional useful info
+            "warnings": boq_model.meta.get("warnings", []),
+        }
+
+        # Runtime validation using media_v2 Schema
+        # This ensures we don't try to register invalid artifacts
+        from engines.media_v2.models import DerivedArtifact
+        artifact = DerivedArtifact(
+            id=artifact_id,
+            parent_asset_id=semantic_model_id, # Semantic model is the parent
+            kind="boq_quantities",
+            uri=f"boq://{artifact_id}", # Virtual URI
+            tenant_id=context.tenant_id if context else "default",
+            env=context.env if context else "dev",
+            meta=meta
+        )
+        
         # TODO: Register with media_v2 infrastructure
-        return artifact_id
+        # media_client.register(artifact)
+        
+        return artifact.id
 
 
 # Module-level default service

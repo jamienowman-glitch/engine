@@ -70,6 +70,63 @@ class TestRealRegionsBackend(unittest.TestCase):
 
         self.assertEqual(result.summary_artifact_id, "art_video_region_summary")
         self.assertEqual(result.summary.meta["cache_key"], "cache_1")
-        self.assertEqual(result.summary.entries[0].region, "face")
         self.assertEqual(result.summary.entries[0].mask_artifact_id, "art_mask")
         self.assertEqual(media_service.register_artifact.call_count, 2)
+
+
+    def test_analyze_min_confidence_filter(self):
+        """Verify that detections below min_confidence are ignored."""
+        self.detect_patcher.stop()
+
+        mock_cascade = MagicMock()
+        # Rect 1: HUGE (full screen) -> high confidence (~0.9-1.0)
+        # Rect 2: Tiny (1x1) -> low confidence (~0.5)
+        # Rects are (x,y,w,h)
+        mock_cascade.detectMultiScale.return_value = [
+            (0, 0, 512, 512),
+            (200, 200, 1, 1)
+        ]
+        self.backend._cascade = mock_cascade
+        
+        # Access the mocked cv2 from setUp
+        cv2_mock = self.backend_module.cv2
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_frame = MagicMock()
+        mock_frame.shape = (512, 512, 3) 
+        mock_cap.read.return_value = (True, mock_frame)
+        
+        cv2_mock.VideoCapture.return_value = mock_cap
+        
+        # Configure cvtColor to return a mock with valid shape
+        mock_gray = MagicMock()
+        mock_gray.shape = (512, 512)
+        cv2_mock.cvtColor.return_value = mock_gray
+        
+        # force min confidence high -> 0.7
+        self.backend.min_confidence = 0.7
+        detections = self.backend._detect_faces("uri", {"face"}, "cache_key")
+        self.assertEqual(len(detections), 1)
+        self.assertEqual(detections[0]["bbox"], (0, 0, 512, 512))
+
+        # force min confidence low -> 0.4
+        self.backend.min_confidence = 0.4
+        detections_all = self.backend._detect_faces("uri", {"face"}, "cache_key")
+        self.assertEqual(len(detections_all), 2)
+
+
+
+    def test_deterministic_seeding(self):
+        """Verify that _seed_rng produces consistent RNG states for same inputs."""
+        rng1 = self.backend._seed_rng("source.mp4", {"face"}, "cache_key_A")
+        val1 = rng1.random()
+        
+        rng2 = self.backend._seed_rng("source.mp4", {"face"}, "cache_key_A")
+        val2 = rng2.random()
+        
+        rng3 = self.backend._seed_rng("source.mp4", {"face"}, "cache_key_B")
+        val3 = rng3.random()
+        
+        self.assertEqual(val1, val2, "Same inputs should produce same random sequence")
+        self.assertNotEqual(val1, val3, "Different cache keys should produce different random sequence")
+

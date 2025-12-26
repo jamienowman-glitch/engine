@@ -59,7 +59,7 @@ class RenderJobRepository:
     def update(self, job: VideoRenderJob) -> VideoRenderJob:
         raise NotImplementedError
 
-    def find_by_cache_key(self, tenant_id: str, cache_key: str, job_type: Optional[RenderJobType] = None) -> Optional[VideoRenderJob]:
+    def find_by_cache_key(self, tenant_id: str, cache_key: str, job_type: Optional[RenderJobType] = None, statuses: Optional[List[str]] = None) -> Optional[VideoRenderJob]:
         raise NotImplementedError
 
 
@@ -88,11 +88,14 @@ class InMemoryRenderJobRepository(RenderJobRepository):
         self.jobs[job.id] = job
         return job
 
-    def find_by_cache_key(self, tenant_id: str, cache_key: str, job_type: Optional[RenderJobType] = None) -> Optional[VideoRenderJob]:
+    def find_by_cache_key(self, tenant_id: str, cache_key: str, job_type: Optional[RenderJobType] = None, statuses: Optional[List[str]] = None) -> Optional[VideoRenderJob]:
+        target_statuses = set(statuses) if statuses else {"succeeded"}
         for job in self.jobs.values():
             if job.tenant_id != tenant_id:
                 continue
-            if job.render_cache_key != cache_key or job.status != "succeeded":
+            if job.render_cache_key != cache_key:
+                continue
+            if job.status not in target_statuses:
                 continue
             if job_type and job.job_type != job_type:
                 continue
@@ -136,8 +139,13 @@ class FirestoreRenderJobRepository(RenderJobRepository):
         self._col(job.tenant_id).document(job.id).set(job.model_dump())
         return job
 
-    def find_by_cache_key(self, tenant_id: str, cache_key: str, job_type: Optional[RenderJobType] = None) -> Optional[VideoRenderJob]:
-        query = self._col(tenant_id).where("render_cache_key", "==", cache_key).where("status", "==", "succeeded")
+    def find_by_cache_key(self, tenant_id: str, cache_key: str, job_type: Optional[RenderJobType] = None, statuses: Optional[List[str]] = None) -> Optional[VideoRenderJob]:
+        query = self._col(tenant_id).where("render_cache_key", "==", cache_key)
+        if statuses:
+            query = query.where("status", "in", statuses)
+        else:
+            query = query.where("status", "==", "succeeded")
+        
         if job_type:
             query = query.where("job_type", "==", job_type)
         docs = query.limit(1).stream()

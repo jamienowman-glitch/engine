@@ -54,3 +54,40 @@ def test_project_sequence_track_clip_flow():
     assert client.get(f"/video/sequences/{sequence['id']}/tracks").status_code == 200
     assert client.get(f"/video/tracks/{track['id']}/clips").status_code == 200
     assert client.get(f"/video/clips/{clip['id']}").status_code == 200
+
+def test_create_track_with_role():
+    client = TestClient(create_app())
+    # Create project/sequence stubs (just enough to get IDs)
+    proj = client.post("/video/projects", json={"tenant_id": "t1", "env": "dev", "title": "T", "tags": []}).json()
+    seq = client.post(f"/video/projects/{proj['id']}/sequences", json={"tenant_id": "t1", "env": "dev", "project_id": proj["id"], "name": "S"}).json()
+    
+    # Test video_role persistence
+    track_resp = client.post(
+        f"/video/sequences/{seq['id']}/tracks",
+        json={
+            "tenant_id": "t1", "env": "dev", "sequence_id": seq["id"], 
+            "kind": "video", "order": 0,
+            "video_role": "b-roll"
+        },
+    )
+    assert track_resp.status_code == 200
+    track = track_resp.json()
+    assert track["video_role"] == "b-roll"
+
+def test_create_clip_with_alignment():
+    client = TestClient(create_app())
+    proj = client.post("/video/projects", json={"tenant_id": "t1", "env": "dev", "title": "T", "tags": []}).json()
+    seq = client.post(f"/video/projects/{proj['id']}/sequences", json={"tenant_id": "t1", "env": "dev", "project_id": proj["id"], "name": "S"}).json()
+    track = client.post(f"/video/sequences/{seq['id']}/tracks", json={"tenant_id": "t1", "env": "dev", "sequence_id": seq["id"], "kind": "video"}).json()
+    
+    clip_resp = client.post(
+        f"/video/tracks/{track['id']}/clips",
+        json={
+            "tenant_id": "t1", "env": "dev", "track_id": track["id"], "asset_id": "a1",
+            "in_ms": 0, "out_ms": 1000, "start_ms_on_timeline": 0,
+            "alignment_applied": True
+        },
+    )
+    assert clip_resp.status_code == 200
+    clip = clip_resp.json()
+    assert clip["alignment_applied"] is True

@@ -1,76 +1,92 @@
-import os
+
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from engines.video_multicam.service import MultiCamService
-from engines.video_multicam.models import CreateMultiCamSessionRequest, MultiCamAutoCutRequest, MultiCamTrackSpec, MultiCamSession
-from engines.media_v2.models import MediaAsset, DerivedArtifact
-from engines.video_timeline.models import Sequence, Track
 
-@patch("engines.video_multicam.service.get_media_service")
-@patch("engines.video_multicam.service.get_timeline_service")
-@patch("engines.video_multicam.service.GcsClient")
-@patch("engines.video_multicam.backend.HAS_DSP", True)
-def test_autocut_smart_switch(mock_gcs, mock_tl_svc, mock_media_svc):
-    # Setup Services
-    mock_media = mock_media_svc.return_value
-    mock_media.get_asset.side_effect = lambda aid: MediaAsset(id=aid, tenant_id="t1", env="dev", kind="video", duration_ms=10000, source_uri="mock://uri")
+@pytest.fixture
+def service():
+    # Minimal service wrapper to test private scoring methods
+    # Mock media_service to avoid S3MediaStorage init error
+    mock_media = MagicMock()
+    svc = MultiCamService(media_service=mock_media)
+    svc.gcs = None
+    return svc
+
+def test_semantic_energy_speech_overlap(service):
+    # Mock artifact info
+    # Window 0-1000ms
+    # Speech event 200-800ms (600ms overlap) -> 0.6 coverage
+    # Score = min(1.0, 0.6 * 1.5) = 0.9
     
-    mock_tl = mock_tl_svc.return_value
-    # Mock sequence/track creation returning objects with IDs
-    mock_tl.create_sequence.return_value = Sequence(id="seq1", project_id="p1", tenant_id="t1", env="dev", name="Cut")
-    mock_tl.create_track.return_value = Track(id="track1", sequence_id="seq1", tenant_id="t1", env="dev", kind="video", order=0)
-    
-    svc = MultiCamService(media_service=mock_media, timeline_service=mock_tl)
-    
-    # Create Session manually in repo
-    session = MultiCamSession(
-        id="s1", tenant_id="t1", env="dev", name="Test",
-        tracks=[
-            MultiCamTrackSpec(asset_id="cam1", role="primary"),
-            MultiCamTrackSpec(asset_id="cam2", role="alt")
+    artifact = MagicMock()
+    artifact.kind = "audio_semantic_timeline"
+    artifact.meta = {
+        "events": [
+            {"kind": "speech", "start_ms": 200, "end_ms": 800},
+            {"kind": "silence", "start_ms": 800, "end_ms": 1000}
         ]
-    )
-    svc.repo.create(session)
+    }
     
-    # We want to force a switch.
-    events_cam1 = [{"start_ms": 0, "end_ms": 2000}]
-    events_cam2 = [{"start_ms": 2000, "end_ms": 4000}]
+    info = {"artifacts": [artifact]}
+    
+    score = service._semantic_energy(info, 0, 1000)
+    assert abs(score - 0.9) < 1e-5
 
-    art_cam1 = DerivedArtifact(
-        id="sem_cam1", tenant_id="t1", env="dev", parent_asset_id="cam1",
-        kind="audio_semantic_timeline", uri="mem://cam1", meta={"events": events_cam1}
-    )
-    art_cam2 = DerivedArtifact(
-        id="sem_cam2", tenant_id="t1", env="dev", parent_asset_id="cam2",
-        kind="audio_semantic_timeline", uri="mem://cam2", meta={"events": events_cam2}
-    )
+def test_semantic_energy_no_speech(service):
+    artifact = MagicMock()
+    artifact.kind = "audio_semantic_timeline"
+    artifact.meta = {
+        "events": [
+            {"kind": "silence", "start_ms": 0, "end_ms": 1000}
+        ]
+    }
+    
+    info = {"artifacts": [artifact]}
+    
+    score = service._semantic_energy(info, 0, 1000)
+    assert score == 0.0
 
-    def list_artifacts(aid):
-        if aid == "cam1":
-            return [art_cam1]
-        if aid == "cam2":
-            return [art_cam2]
-        return []
+def test_semantic_energy_missing_artifact(service):
+    info = {"artifacts": []}
+    score = service._semantic_energy(info, 0, 1000)
+    # Fallback is 0.0
+    assert score == 0.0
 
-    mock_media.list_artifacts_for_asset.side_effect = list_artifacts
+def test_visual_motion_score_frames(service):
+    # Window 0-1000
+    # Frame at 500: score 0.8
+    # Frame at 600: score 0.4
+    # Avg = 0.6
+    
+    artifact = MagicMock()
+    artifact.kind = "visual_meta"
+    artifact.meta = {
+        "frames": [
+            {"timestamp_ms": 500, "motion_score": 0.8},
+            {"timestamp_ms": 600, "motion_score": 0.4}
+        ]
+    }
+    info = {"artifacts": [artifact]}
+    
+    score = service._visual_motion_score(info, 0, 1000)
+    assert abs(score - 0.6) < 1e-5
 
-    req = MultiCamAutoCutRequest(
-        session_id="s1", tenant_id="t1", env="dev",
-        min_shot_duration_ms=1000, max_shot_duration_ms=1500,
-    )
+def test_visual_motion_fallback_no_artifact(service):
+    info = {"artifacts": []}
+    # Fallback 0.2
+    score = service._visual_motion_score(info, 0, 1000)
+    assert score == 0.2
 
-    with patch.dict(os.environ, {"VIDEO_MULTICAM_PACING_PRESET": "fast"}):
-        res = svc.auto_cut_sequence(req)
-
-    assert res.meta["pacing_preset"] == "fast"
-    assert res.meta["score_version"] == "v1"
-
-    clips = [c[0][0] for c in mock_tl.create_clip.call_args_list]
-    assert len(clips) >= 2
-
-    durations = [(c.out_ms - c.in_ms) for c in clips[:2]]
-    assert all(1000 <= dur <= 1500 for dur in durations)
-
-    asset_ids = [c.asset_id for c in clips[:3]]
-    assert asset_ids[0] == "cam1"
-    assert "cam2" in asset_ids
+def test_visual_motion_fallback_property_name(service):
+    # Old property name support
+    artifact = MagicMock()
+    artifact.kind = "visual_meta"
+    artifact.meta = {
+        "frames": [
+            {"timestamp_ms": 500, "primary_subject_movement": 0.9}
+        ]
+    }
+    info = {"artifacts": [artifact]}
+    
+    score = service._visual_motion_score(info, 0, 1000)
+    assert score == 0.9

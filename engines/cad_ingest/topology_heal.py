@@ -51,8 +51,12 @@ def normalize_polygon_winding(vertices: List[Vector3]) -> List[Vector3]:
         v2 = vertices[(i + 1) % len(vertices)]
         area += (v2.x - v1.x) * (v2.y + v1.y)
     
-    # If clockwise (area < 0), reverse
-    if area < 0:
+    # Trapezoid formula: sum((x2-x1)(y2+y1))
+    # Area > 0 implies Clockwise (assuming Y-up)
+    # Area < 0 implies Counter-Clockwise
+    
+    # We want CCW. If CW (area > 0), reverse.
+    if area > 0:
         return list(reversed(vertices))
     return vertices
 

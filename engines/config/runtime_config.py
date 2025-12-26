@@ -14,6 +14,11 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
     return os.getenv(name, default)
 
 
+def _default_project_id() -> str:
+    """Fallback project identifier for non-request contexts."""
+    return _get_env("PROJECT_ID") or _get_env("GCP_PROJECT") or "runtime_config"
+
+
 def get_tenant_id() -> Optional[str]:
     return _get_env("TENANT_ID")
 
@@ -42,9 +47,15 @@ def _selecta_metadata(slot: str, ctx: Optional[RequestContext] = None) -> Dict[s
                 request_id="runtime_config",
                 tenant_id=get_tenant_id() or "t_dev",
                 env=get_env() or "dev",
+                project_id=_default_project_id(),
             )
         except Exception:
-            context = RequestContext(request_id="runtime_config", tenant_id="t_dev", env="dev")
+            context = RequestContext(
+                request_id="runtime_config",
+                tenant_id="t_dev",
+                env="dev",
+                project_id=_default_project_id(),
+            )
         result = get_selecta_resolver().resolve(context, slot)
         return result.metadata or {}
     except MissingKeyConfig:

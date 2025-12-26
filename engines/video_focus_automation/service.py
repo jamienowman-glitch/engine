@@ -109,8 +109,17 @@ class FocusAutomationService:
         # Fetch Asset context
         asset = self.media_service.get_asset(req.asset_id)
         if not asset:
+            logger.warning("Asset %s not found", req.asset_id)
             return None
             
+        # Enforce Tenant/Env from Request if present (assuming req has it, model check needed)
+        # Detailed V04 spec says: "rejects tenant/env mismatch"
+        # Focusing on asset tenant/env matching request context
+        if req.tenant_id and asset.tenant_id != req.tenant_id:
+             raise ValueError(f"Access Denied: Asset tenant {asset.tenant_id} != Req {req.tenant_id}")
+        if req.env and asset.env != req.env:
+             raise ValueError(f"Access Denied: Asset env {asset.env} != Req {req.env}")
+
         # 1. Resolve Artifacts
         audio_art_id = req.audio_artifact_id
         visual_art_id = req.visual_artifact_id
@@ -148,20 +157,16 @@ class FocusAutomationService:
             for f in v_frames:
                 t = f["timestamp_ms"]
                 if t >= start and t <= end:
-                    # Looking for 'face' or 'primary_subject'
-                    # Assuming P5 visual meta structure: {timestamp_ms, regions: [{label, x, y, w, h}]}
-                    # Or flat fields: primary_subject_center_x
-                    
-                    # Implementation in existing code assumed flat fields:
                     cx = f.get("primary_subject_center_x")
                     cy = f.get("primary_subject_center_y")
                     
-                    # If not flat, check regions?
                     if cx is None and "regions" in f:
-                         # Find face
                          faces = [r for r in f["regions"] if r.get("label") == "face"]
+                         # Also support 'person'
+                         if not faces:
+                             faces = [r for r in f["regions"] if r.get("label") == "person"]
+                             
                          if faces:
-                             # take largest face? or first?
                              r = faces[0]
                              cx = r.get("x", 0) + r.get("w", 0)/2
                              cy = r.get("y", 0) + r.get("h", 0)/2
@@ -181,8 +186,10 @@ class FocusAutomationService:
         
         for evt in events:
             if evt.get("kind") == "speech":
-                start = evt["start_ms"]
-                end = evt["end_ms"]
+                start = evt.get("start_ms", 0)
+                end = evt.get("end_ms", 0)
+                if end <= start: continue
+                
                 cx, cy = get_avg_center(start, end)
                 
                 # Add hold keyframes
@@ -194,7 +201,11 @@ class FocusAutomationService:
         kfs_x.sort(key=lambda k: k.time_ms)
         kfs_y.sort(key=lambda k: k.time_ms)
         
-        # Deduplicate identical times? (Not strictly required for V1 render)
+        result_meta = {
+            "automation_version": "v1",
+            "source_audio_artifact": audio_art_id,
+            "source_visual_artifact": visual_art_id,
+        }
         
         return FocusResult(
             clip_id=req.clip_id,
@@ -203,7 +214,8 @@ class FocusAutomationService:
             ),
             automation_y=ParameterAutomation(
                 tenant_id=asset.tenant_id, env=asset.env, target_type="clip", target_id=req.clip_id, property="crop_y", keyframes=kfs_y
-            )
+            ),
+            meta=result_meta
         )
 
 _svc = None

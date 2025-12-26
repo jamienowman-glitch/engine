@@ -3,11 +3,135 @@ import uuid
 import io
 import json
 import hashlib
-from typing import Optional, Dict, Tuple, List
+import os
+from copy import deepcopy
+from typing import Optional, Dict, Tuple, List, Any, Protocol, Literal
 from engines.media_v2.service import MediaService, get_media_service
 from engines.media_v2.models import ArtifactCreateRequest, MediaUploadRequest, DerivedArtifact
-from engines.image_core.models import ImageComposition, ImageSelection
+from engines.image_core.models import ImageAdjustment, ImageLayer, ImageComposition, ImageSelection
 from engines.image_core.backend import ImageCoreBackend
+from engines.typography_core.models import TextLayoutRequest
+from engines.typography_core.renderer import TextLayoutMetadata
+from engines.typography_core.service import TypographyService
+from PIL import Image, ImageDraw, ImageFilter
+from PIL import ImageOps
+
+DEFAULT_NO_CODE_MAN_RECIPE_ID = "no_code_man_v1"
+
+def _compute_safe_title_box(width: int, height: int) -> Dict[str, float]:
+    safe_width = int(width * 0.9)
+    safe_height = int(height * 0.8)
+    horizontal_margin = (width - safe_width) // 2
+    vertical_margin = (height - safe_height) // 2
+    return {
+        "width": safe_width,
+        "height": safe_height,
+        "x": horizontal_margin,
+        "y": vertical_margin,
+        "horizontal_margin_pct": 0.05,
+        "vertical_margin_pct": 0.1,
+        "width_pct": 0.9,
+        "height_pct": 0.8,
+        "centered": True,
+    }
+
+def _build_thumbnail_preset(preset_id: str, width: int, height: int, aspect_ratio: str) -> Dict[str, Any]:
+    return {
+        "preset_id": preset_id,
+        "width": width,
+        "height": height,
+        "aspect_ratio": aspect_ratio,
+        "format": "PNG",
+        "quality": 90,
+        "recipe_id": DEFAULT_NO_CODE_MAN_RECIPE_ID,
+        "safe_title_box": _compute_safe_title_box(width, height),
+    }
+
+_SOCIAL_THUMBNAIL_PRESET_SPECS = {
+    "youtube_thumb_16_9": (1280, 720, "16:9"),
+    "social_vertical_story_9_16": (1080, 1920, "9:16"),
+    "social_square_1_1": (1080, 1080, "1:1"),
+    "social_4_3_comfort": (1440, 1080, "4:3"),
+}
+
+_SOCIAL_THUMBNAIL_PRESETS = {
+    preset_id: _build_thumbnail_preset(preset_id, *spec)
+    for preset_id, spec in _SOCIAL_THUMBNAIL_PRESET_SPECS.items()
+}
+
+
+class SubjectDetectionError(Exception):
+    """Base class for subject detector failures."""
+    pass
+
+
+class SubjectDetectorUnavailable(SubjectDetectionError):
+    """Raised when the real detector backend cannot be initialized or is missing."""
+    pass
+
+
+class SubjectDetectionFailure(SubjectDetectionError):
+    """Raised when the detector runs but no subjects are found."""
+    pass
+
+
+class SubjectDetector:
+    """Real subject detector wrapper (OpenCV Haar cascade)."""
+
+    def __init__(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError as exc:
+            raise SubjectDetectorUnavailable(
+                "OpenCV and NumPy are required for subject detection"
+            ) from exc
+
+        cascade_root = getattr(cv2.data, "haarcascades", None)
+        cascade_path = (
+            os.path.join(cascade_root, "haarcascade_frontalface_default.xml")
+            if cascade_root
+            else None
+        )
+        if not cascade_path or not os.path.exists(cascade_path):
+            raise SubjectDetectorUnavailable("Haar cascade file is missing from OpenCV data")
+
+        classifier = cv2.CascadeClassifier(cascade_path)
+        if classifier.empty():
+            raise SubjectDetectorUnavailable("Failed to load Haar cascade for face detection")
+
+        self.cv2 = cv2
+        self.np = np
+        self.classifier = classifier
+
+    def detect(self, image: Image.Image) -> List[Tuple[int, int, int, int]]:
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        arr = self.np.array(image)
+        gray = self.cv2.cvtColor(arr, self.cv2.COLOR_RGB2GRAY)
+        boxes = self.classifier.detectMultiScale(
+            gray,
+            scaleFactor=1.05,
+            minNeighbors=5,
+            minSize=(32, 32),
+        )
+        if boxes is None:
+            return []
+        return [tuple(map(int, box)) for box in boxes]
+
+
+class GenerativeFillProvider(Protocol):
+    """Abstraction for plugging in a generative fill expansion service."""
+
+    def expand(
+        self,
+        image: Image.Image,
+        width: int,
+        height: int,
+        margin_x: int,
+        margin_y: int,
+    ) -> Image.Image:
+        ...
 
 class ImageCoreService:
     PRESETS = {
@@ -78,11 +202,25 @@ class ImageCoreService:
         # Archive/High-Quality
         "tiff_high_quality": {"format": "TIFF", "width": None, "height": None, "quality": None},
     }
+    NO_CODE_MAN_RECIPE_ID = DEFAULT_NO_CODE_MAN_RECIPE_ID
+    SOCIAL_THUMBNAIL_PRESETS = _SOCIAL_THUMBNAIL_PRESETS
 
-    def __init__(self, media_service: Optional[MediaService] = None):
+    def __init__(
+        self,
+        media_service: Optional[MediaService] = None,
+        subject_detector: Optional[SubjectDetector] = None,
+        typography_service: Optional[TypographyService] = None,
+        generative_fill_provider: Optional[GenerativeFillProvider] = None,
+    ):
         self.media_service = media_service or get_media_service()
         self.backend = ImageCoreBackend(self.media_service)
         self._mask_cache: Dict[Tuple[str, str, str], DerivedArtifact] = {}
+        self._subject_detector = subject_detector
+        self._subject_mask_cache: Dict[Tuple[str, str, str, int, int], DerivedArtifact] = {}
+        self._generative_fill_provider = generative_fill_provider
+        self.typography_service = typography_service or TypographyService(
+            media_service=self.media_service
+        )
 
     def render_composition(self, comp: ImageComposition, parent_asset_id: Optional[str] = None, preset_id: Optional[str] = None) -> str:
         """
@@ -279,6 +417,377 @@ class ImageCoreService:
                 continue
         
         return results
+
+    def get_social_thumbnail_preset(self, preset_id: str) -> Optional[Dict[str, Any]]:
+        config = self.SOCIAL_THUMBNAIL_PRESETS.get(preset_id)
+        if not config:
+            return None
+        return deepcopy(config)
+
+    def list_social_thumbnail_presets(self) -> List[Dict[str, Any]]:
+        return [deepcopy(config) for config in self.SOCIAL_THUMBNAIL_PRESETS.values()]
+
+    def detect_subject_mask(
+        self,
+        asset_id: str,
+        width: int,
+        height: int,
+        tenant_id: str,
+        env: str,
+    ) -> str:
+        if not asset_id:
+            raise ValueError("asset_id is required for subject detection")
+        if width <= 0 or height <= 0:
+            raise ValueError("Mask width/height must be positive")
+        if not tenant_id or not env:
+            raise ValueError("tenant_id and env are required to create a subject mask")
+
+        cache_key = (tenant_id, env, asset_id, width, height)
+        cached = self._subject_mask_cache.get(cache_key)
+        if cached:
+            return cached.id
+
+        asset = self.media_service.get_asset(asset_id)
+        if not asset or not asset.source_uri:
+            raise ValueError("Asset not found for subject detection")
+
+        detector = self._ensure_subject_detector()
+        with Image.open(asset.source_uri) as img:
+            boxes = detector.detect(img)
+            source_size = img.size
+
+        if not boxes:
+            raise SubjectDetectionFailure("Subject detector did not return any subjects")
+
+        mask_img = self._render_subject_mask(boxes, width, height, source_size)
+        signature = "|".join(f"{x},{y},{w},{h}" for x, y, w, h in boxes)
+        cache_identifier = hashlib.sha256(f"{asset_id}:{width}:{height}:{signature}".encode()).hexdigest()
+
+        out_io = io.BytesIO()
+        mask_img.save(out_io, format="PNG")
+        content = out_io.getvalue()
+        filename = f"subject_mask_{asset_id[:6]}_{width}x{height}.png"
+
+        up_req = MediaUploadRequest(
+            tenant_id=tenant_id,
+            env=env,
+            kind="image",
+            source_uri="pending",
+            tags=["generated", "image_core", "subject_mask"],
+            meta={"asset_id": asset_id, "width": width, "height": height},
+        )
+
+        new_asset = self.media_service.register_upload(up_req, filename, content)
+        artifact = self.media_service.register_artifact(
+            ArtifactCreateRequest(
+                tenant_id=tenant_id,
+                env=env,
+                parent_asset_id=new_asset.id,
+                kind="mask",
+                uri=new_asset.source_uri,
+                meta={
+                    "backend_version": "image_subject_detector_v1",
+                    "model_used": "opencv_haar_v1",
+                    "cache_key": cache_identifier,
+                    "detections": len(boxes),
+                    "detection_boxes": [[x, y, w, h] for x, y, w, h in boxes],
+                    "width": width,
+                    "height": height,
+                    "asset_id": asset_id,
+                },
+            )
+        )
+
+        self._subject_mask_cache[cache_key] = artifact
+        return artifact.id
+
+    def _ensure_subject_detector(self) -> SubjectDetector:
+        if self._subject_detector is None:
+            self._subject_detector = SubjectDetector()
+        return self._subject_detector
+
+    def _render_subject_mask(
+        self,
+        boxes: List[Tuple[int, int, int, int]],
+        target_width: int,
+        target_height: int,
+        source_size: Tuple[int, int],
+    ) -> Image.Image:
+        mask = Image.new("L", (target_width, target_height), 0)
+        draw = ImageDraw.Draw(mask)
+        src_width, src_height = source_size
+        if src_width <= 0 or src_height <= 0:
+            raise ValueError("Source size must be positive for mask rendering")
+
+        scale_x = target_width / src_width
+        scale_y = target_height / src_height
+
+        for x, y, w, h in boxes:
+            left = max(0, min(int(x * scale_x), target_width))
+            top = max(0, min(int(y * scale_y), target_height))
+            right = max(left, min(int((x + w) * scale_x), target_width))
+            bottom = max(top, min(int((y + h) * scale_y), target_height))
+            draw.ellipse((left, top, right, bottom), fill=255)
+
+        blur_radius = max(1, int(min(target_width, target_height) * 0.04))
+        return mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+    def create_social_thumbnail(
+        self,
+        asset_id: str,
+        title: str,
+        preset_id: str,
+        tenant_id: str,
+        env: str,
+        extend_canvas: bool = False,
+        bw_background: bool = True,
+        extend_canvas_mode: Literal["mirror_blur", "generative_fill"] = "mirror_blur",
+    ) -> DerivedArtifact:
+        if not asset_id:
+            raise ValueError("asset_id is required to build a thumbnail")
+        if not title or not title.strip():
+            raise ValueError("title is required for social thumbnail compositions")
+        preset = self.get_social_thumbnail_preset(preset_id)
+        if not preset:
+            raise ValueError(f"Preset {preset_id} is not defined for COMFORT thumbnails")
+
+        asset = self.media_service.get_asset(asset_id)
+        if not asset:
+            raise ValueError(f"Asset {asset_id} not found for thumbnail creation")
+        subject_mask_id = self.detect_subject_mask(
+            asset_id,
+            preset["width"],
+            preset["height"],
+            tenant_id,
+            env,
+        )
+        _, text_asset_id, text_meta = self.typography_service.render_text_with_metadata(
+            self._build_headline_text_request(title, preset),
+            tenant_id=tenant_id,
+            env=env,
+        )
+
+        composition = self._plan_social_thumbnail_composition(
+            asset_id,
+            preset,
+            subject_mask_id,
+            text_asset_id,
+            text_meta,
+            bw_background,
+            tenant_id,
+            env,
+        )
+
+        pipeline_hash = self.backend.compute_pipeline_hash(composition)
+        png_bytes = self.backend.render(composition, pipeline_hash=pipeline_hash)
+        final_width = preset["width"]
+        final_height = preset["height"]
+        if extend_canvas:
+            png_bytes, final_width, final_height = self.extend_canvas_mirror_blur(
+                png_bytes,
+                final_width,
+                final_height,
+                mode=extend_canvas_mode,
+            )
+
+        blend_modes = sorted({layer.blend_mode for layer in composition.layers})
+        safe_box = _compute_safe_title_box(final_width, final_height)
+
+        filename = f"social_thumb_{preset_id}_{uuid.uuid4().hex[:8]}.png"
+        up_req = MediaUploadRequest(
+            tenant_id=tenant_id,
+            env=env,
+            kind="image",
+            source_uri="pending",
+            tags=["generated", "image_core", "social_thumbnail", preset_id, preset["recipe_id"]],
+            meta={"asset_id": asset_id},
+        )
+        new_asset = self.media_service.register_upload(up_req, filename, png_bytes)
+
+        meta = {
+            "width": final_width,
+            "height": final_height,
+            "pipeline_hash": pipeline_hash,
+            "blend_modes": blend_modes,
+            "preset_id": preset_id,
+            "recipe_id": preset["recipe_id"],
+            "subject_mask_id": subject_mask_id,
+            "text_layout_hash": text_meta.layout_hash,
+            "safe_title_box": safe_box,
+        }
+
+        artifact = self.media_service.register_artifact(
+            ArtifactCreateRequest(
+                tenant_id=tenant_id,
+                env=env,
+                parent_asset_id=new_asset.id,
+                kind="image_render",
+                uri=new_asset.source_uri,
+                meta=meta,
+            )
+        )
+        return artifact
+
+    def _build_headline_text_request(
+        self, title: str, preset: Dict[str, Any]
+    ) -> TextLayoutRequest:
+        safe_box = preset["safe_title_box"]
+        font_size = max(32, int(safe_box["height"] * 0.45))
+        return TextLayoutRequest(
+            text=title,
+            font_size_px=font_size,
+            width=safe_box["width"],
+            height=safe_box["height"],
+            color_hex="#FFFFFF",
+            color_overlay_hex="#FFFFFF",
+            color_overlay_opacity=0.9,
+            outer_glow_color_hex="#FFFFFF",
+            outer_glow_opacity=0.75,
+            outer_glow_radius_ratio=0.03,
+        )
+
+    def _plan_social_thumbnail_composition(
+        self,
+        asset_id: str,
+        preset: Dict[str, Any],
+        subject_mask_id: str,
+        text_asset_id: str,
+        text_meta: TextLayoutMetadata,
+        bw_background: bool,
+        tenant_id: str,
+        env: str,
+    ) -> ImageComposition:
+        width = preset["width"]
+        height = preset["height"]
+        safe_box = preset["safe_title_box"]
+        comp = ImageComposition(
+            tenant_id=tenant_id,
+            env=env,
+            width=width,
+            height=height,
+            background_color="#000000",
+        )
+        comp.layers.append(
+            ImageLayer(
+                asset_id=asset_id,
+                width=width,
+                height=height,
+                adjustments=self._background_adjustments(bw_background),
+                filter_mode="blur",
+                filter_strength=4.0,
+            )
+        )
+        comp.layers.append(
+            ImageLayer(
+                asset_id=asset_id,
+                width=width,
+                height=height,
+                mask_artifact_id=subject_mask_id,
+                adjustments=self._foreground_adjustments(),
+            )
+        )
+        text_x = safe_box["x"] + max(0, (safe_box["width"] - text_meta.width) // 2)
+        text_y = safe_box["y"] + max(0, (safe_box["height"] - text_meta.height) // 2)
+        comp.layers.append(
+            ImageLayer(
+                asset_id=text_asset_id,
+                width=text_meta.width,
+                height=text_meta.height,
+                x=text_x,
+                y=text_y,
+            )
+        )
+        return comp
+
+    def _background_adjustments(self, bw_background: bool) -> ImageAdjustment:
+        adjustments = ImageAdjustment()
+        adjustments.brightness = 0.78
+        adjustments.contrast = 1.1
+        adjustments.saturation = 0.0 if bw_background else 0.4
+        adjustments.sharpness = 0.9
+        return adjustments
+
+    def _foreground_adjustments(self) -> ImageAdjustment:
+        adjustments = ImageAdjustment()
+        adjustments.brightness = 1.1
+        adjustments.contrast = 1.25
+        adjustments.saturation = 1.2
+        adjustments.sharpness = 1.1
+        return adjustments
+
+    def extend_canvas_mirror_blur(
+        self,
+        png_bytes: bytes,
+        width: int,
+        height: int,
+        margin_pct: float = 0.08,
+        mode: Literal["mirror_blur", "generative_fill"] = "mirror_blur",
+    ) -> Tuple[bytes, int, int]:
+        margin_x = min(max(10, int(width * margin_pct)), max(1, width // 2))
+        margin_y = min(max(10, int(height * margin_pct)), max(1, height // 2))
+        new_width = width + margin_x * 2
+        new_height = height + margin_y * 2
+        src = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+        # Future hook: swap mirror/blur edges for a generative-fill expansion when a provider is configured.
+        if (
+            mode == "generative_fill"
+            and self._generative_fill_provider
+            and margin_x > 0
+            and margin_y > 0
+        ):
+            expanded = self._generative_fill_provider.expand(
+                src, width, height, margin_x, margin_y
+            )
+            out_io = io.BytesIO()
+            expanded.save(out_io, format="PNG")
+            return out_io.getvalue(), expanded.width, expanded.height
+        extended = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+        extended.paste(src, (margin_x, margin_y))
+        if margin_x > 0:
+            left_slice = src.crop((0, 0, margin_x, height))
+            extended.paste(
+                ImageOps.mirror(left_slice.resize((margin_x, height))), (0, margin_y)
+            )
+            right_slice = src.crop((width - margin_x, 0, width, height))
+            extended.paste(
+                ImageOps.mirror(right_slice.resize((margin_x, height))),
+                (new_width - margin_x, margin_y),
+            )
+        if margin_y > 0:
+            top_slice = src.crop((0, 0, width, margin_y))
+            extended.paste(
+                ImageOps.flip(top_slice.resize((width, margin_y))), (margin_x, 0)
+            )
+            bottom_slice = src.crop((0, height - margin_y, width, height))
+            extended.paste(
+                ImageOps.flip(bottom_slice.resize((width, margin_y))),
+                (margin_x, new_height - margin_y),
+            )
+        if margin_x > 0 and margin_y > 0:
+            corner = src.crop((0, 0, margin_x, margin_y))
+            extended.paste(
+                ImageOps.flip(ImageOps.mirror(corner)), (0, 0)
+            )
+            corner = src.crop((width - margin_x, 0, width, margin_y))
+            extended.paste(
+                ImageOps.flip(ImageOps.mirror(corner)), (new_width - margin_x, 0)
+            )
+            corner = src.crop((0, height - margin_y, margin_x, height))
+            extended.paste(
+                ImageOps.flip(ImageOps.mirror(corner)), (0, new_height - margin_y)
+            )
+            corner = src.crop((width - margin_x, height - margin_y, width, height))
+            extended.paste(
+                ImageOps.flip(ImageOps.mirror(corner)),
+                (new_width - margin_x, new_height - margin_y),
+            )
+        blur_radius = max(1, int((margin_x + margin_y) * 0.4))
+        blurred = extended.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        blurred.paste(src, (margin_x, margin_y), src)
+        out_io = io.BytesIO()
+        blurred.save(out_io, format="PNG")
+        # Future hook: swap mirror/blur with generative fill when available.
+        return out_io.getvalue(), new_width, new_height
 
     def _selection_hash(self, selection: ImageSelection, width: int, height: int) -> str:
         normalized = self._normalize_value(selection.model_dump())

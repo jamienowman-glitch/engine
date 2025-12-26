@@ -126,10 +126,10 @@ Purpose: Cheap, structured “what’s on screen” summaries per video asset/ar
 ```
 
 ### Video regions, visual meta, and captions (Phase V01)
-- `POST /video/regions` validates `RequestContext` vs payload, enforces `VIDEO_REGION_BACKEND` (default `opencv_face_detector`)/`VIDEO_REGIONS_MIN_CONFIDENCE`, caches results via `cache_key` and registers `video_region_summary` + mask artifacts under the enforced prefix. The registered artifact metadata includes `backend_version`, `model_used`, `cache_key`, and `duration_ms` so downstream render/anonymise flows know exactly which detector generated the masks.
-- `POST /video/visual-meta/analyze` (controlled by `VIDEO_VISUAL_META_BACKEND`) samples frames at `sample_interval_ms`, writes motion/shot/primary subject data, sets `frame_sample_interval_ms` in meta, and reuses the artifact whenever backend params + cache key match.
-- `POST /video/captions/generate` uses the Whisper backend selected via `VIDEO_CAPTIONS_BACKEND`, `VIDEO_CAPTIONS_MODEL`, `VIDEO_CAPTIONS_DEVICE`, and `VIDEO_CAPTIONS_LANGUAGE`. It stores `asr_transcript` artifacts with the same metadata fields plus `language` and exposes rendered captions via `GET /video/captions/{artifact_id}/srt`.
-- `POST /video/anonymise/faces` consumes the freshest `video_region_summary`, applies preset blur strengths, writes metadata linking the summary `artifact_id` and backend version, and short-circuits when no faces exist.
+- `POST /video/regions` validates `RequestContext` vs payload, enforces `VIDEO_REGION_BACKEND` (default `opencv_face_detector`)/`VIDEO_REGIONS_MIN_CONFIDENCE`, caches results via `cache_key` and registers `video_region_summary` + mask artifacts under the enforced prefix `tenants/{tenant}/{env}/media_v2/{asset_id}/regions/`. The registered artifact metadata MUST include `backend_version`, `model_used`, `cache_key`; otherwise registration fails. This strict validation ensures downstream render/anonymise flows know exactly which detector generated the masks.
+- `POST /video/visual-meta/analyze` (controlled by `VIDEO_VISUAL_META_BACKEND`) samples frames at `sample_interval_ms`, writes motion/shot/primary subject data, sets `frame_sample_interval_ms` in meta, and reuses the artifact whenever backend params + cache key match. Strict `RequestContext` validation is enforced to prevent cross-tenant access.
+- `POST /video/captions/generate` uses the Whisper backend selected via `VIDEO_CAPTIONS_BACKEND` (defaulting to `stub` if missing). It enforces strict `RequestContext` validation, stores `asr_transcript` artifacts with `backend_version`/`model_used`/`language` metadata, and exposes rendered captions via `GET /video/captions/{artifact_id}/srt`.
+- `POST /video/anonymise/faces` consumes the freshest `video_region_summary`, applies preset blur strengths, writes `face_blur` filters to the filter stack with `source_summary_id`/`backend_version` params, and short-circuits safely when no faces exist. It strict enforces tenant isolation.
 - Render plans prefer the latest `video_region_summary`, `visual_meta`, and `asr_transcript`. Dry-runs (`POST /video/render/dry-run` → `POST /video/render`) log `dependency_notices` listing each upstream artifact with its `backend_version` + `cache_key`, making it trivial to audit which backends built downstream shots.
 - Example flow (matches the Definition of Done):  
   1. `POST /video/regions` on the face fixture → obtains `video_region_summary`.  
@@ -328,6 +328,20 @@ Purpose: Produce `audio_voice_enhanced` artifacts for cleaner/more present dialo
 - This shared pipeline keeps font resolution deterministic (axis clamping + presets) and surfaces metadata for telemetry/caching when overlayed assets are used in renders.
 - Vector overlays coming from `vector_core` scenes rasterize via `image_core` and can be blended onto video previews just like image layers; their transforms/stroke opacity are applied by the same renderer, so transparent/rotated shapes reuse the same compositing paths as typography overlays. 
 - Vector artifacts now emit `layout_hash` + `boolean_ops` metadata so render caching or video preview pipelines can detect reused overlays instead of rerendering.
+
+### 9) Multicam Atom (`engines/video_multicam`)
+Purpose: Manage multi-camera sessions, providing deterministic audio-based alignment and automated cutting.
+
+**Models**
+- `MultiCamSession`: {`id`, `tenant_id`, `tracks` (asset_id, role, offset_ms), `base_asset_id`}.
+- `MultiCamAlignResult`: {`session_id`, `offsets_ms`, `meta` (confidences, cache_hit)}.
+
+**Behavior**
+- **Alignment**: `POST /video/multicam/sessions/{id}/align` uses `waveform_cross_correlation` (via librosa/scipy) to calculate lags relative to a base asset.
+- **Confidence**: Returns `confidences` (0-1) in metadata based on correlation peak energy.
+- **Caching**: Results cached in `session.meta.alignment_cache` keyed by method/version/search_window; identical requests return cached offsets instantly.
+- **Auto-Cut**: `POST /.../auto-cut` uses visual motion + audio semantic energy to generate a program sequence.
+- **Security**: Strict `tenant_id` and `env` enforcement on all endpoints.
 
 ## Ops notes
 - **Dependencies**: ffmpeg installed and on PATH; optional faster-whisper/librosa/torch improve ASR/beat features but endpoints degrade gracefully. Firestore client + credentials (or emulator) required for persistent repos; otherwise in-memory fallback. GCS buckets configured via `RAW_BUCKET`/`DATASETS_BUCKET` for uploads; otherwise local temp storage is used.

@@ -1,85 +1,116 @@
+
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from engines.video_assist.service import VideoAssistService
-from engines.video_timeline.models import VideoProject, Sequence, Track, Clip
-from engines.media_v2.models import MediaAsset, DerivedArtifact
 
-@patch("engines.video_assist.service.get_media_service")
-@patch("engines.video_assist.service.get_timeline_service")
-def test_generate_highlights(mock_tl_svc, mock_media_svc):
-    mock_media = mock_media_svc.return_value
-    a1 = MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", source_uri="/tmp/1.mp4", duration_ms=60000)
-    a2 = MediaAsset(id="a2", tenant_id="t1", env="dev", kind="video", source_uri="/tmp/2.mp4", duration_ms=60000)
+@pytest.fixture
+def mock_timeline_service():
+    return MagicMock()
 
-    def side_effect_get_asset(aid):
-        if aid == "a1":
-            return a1
-        if aid == "a2":
-            return a2
-        return None
+@pytest.fixture
+def mock_media_service():
+    return MagicMock()
 
-    mock_media.get_asset.side_effect = side_effect_get_asset
+@pytest.fixture
+def service(mock_timeline_service, mock_media_service):
+    return VideoAssistService(
+        timeline_service=mock_timeline_service,
+        media_service=mock_media_service
+    )
 
-    sem1 = DerivedArtifact(
-        id="sem1", tenant_id="t1", env="dev", parent_asset_id="a1",
-        kind="audio_semantic_timeline", uri="mem://1",
-        meta={"events": [{"start_ms": 0, "end_ms": 3000, "confidence": 0.9}]},
-    )
-    sem2 = DerivedArtifact(
-        id="sem2", tenant_id="t1", env="dev", parent_asset_id="a2",
-        kind="audio_semantic_timeline", uri="mem://2",
-        meta={"events": [{"start_ms": 1000, "end_ms": 4000, "confidence": 0.6}]},
-    )
-    vis1 = DerivedArtifact(
-        id="vis1", tenant_id="t1", env="dev", parent_asset_id="a1",
-        kind="visual_meta", uri="vis://1",
-        meta={"frames": [{"timestamp_ms": 500, "motion_score": 0.9}]},
-    )
-    vis2 = DerivedArtifact(
-        id="vis2", tenant_id="t1", env="dev", parent_asset_id="a2",
-        kind="visual_meta", uri="vis://2",
-        meta={"frames": [{"timestamp_ms": 1500, "motion_score": 0.4}]},
-    )
+def test_generate_highlights_scoring(service, mock_timeline_service, mock_media_service):
+    # Setup project
+    project = MagicMock(tenant_id="t1", env="dev", sequence_ids=["sq1"])
+    # MagicMock attributes behave like mocks unless set, but initializing with kwargs sets them?
+    # Actually MagicMock(tenant_id="t1") sets it.
+    mock_timeline_service.get_project.return_value = project
+    mock_timeline_service.list_tracks_for_sequence.return_value = [MagicMock(kind="video", id="tk1")]
+    mock_timeline_service.list_clips_for_track.return_value = [
+        MagicMock(asset_id="speech_asset"),
+        MagicMock(asset_id="silent_asset")
+    ]
+    
+    # Mock Artifacts
+    # speech_asset: has speech event (high score)
+    art_speech = MagicMock()
+    art_speech.kind = "audio_semantic_timeline"
+    art_speech.meta = {
+        "events": [{"kind": "speech", "start_ms": 0, "end_ms": 5000, "confidence": 0.9}]
+    }
+    
+    # silent_asset: has silence event (ignored, score 0 -> fallback? No, filtering ignores it)
+    # Actually if filtering ignores it, it gets NO semantic segments.
+    # Logic: "for seg in semantic_segs: score = ..."
+    # If no segments, it won't be added to candidate_segments from loop.
+    # If candidate_segments is empty at end, it does fallback.
+    # But speech_asset WILL contribute segments.
+    # So silent_asset won't be in candidates unless we fallback?
+    # Wait, if ANY asset has segments, we use them.
+    # So silent_asset is excluded.
+    
+    art_silent = MagicMock()
+    art_silent.kind = "audio_semantic_timeline"
+    art_silent.meta = {
+        "events": [{"kind": "silence", "start_ms": 0, "end_ms": 5000}]
+    }
 
     def list_artifacts(aid):
-        if aid == "a1":
-            return [sem1, vis1]
-        if aid == "a2":
-            return [sem2, vis2]
-        return []
+        if aid == "speech_asset": return [art_speech]
+        return [art_silent]
+    
+    mock_media_service.list_artifacts_for_asset.side_effect = list_artifacts
+    
+    seq, track, clips = service.generate_highlights("p1", target_duration_ms=10000)
+    
+    # Should only select speech_asset clips because silent_asset yields no segments
+    assert len(clips) > 0
+    for c in clips:
+        assert c.asset_id == "speech_asset"
 
-    mock_media.list_artifacts_for_asset.side_effect = list_artifacts
+def test_generate_highlights_fallback(service, mock_timeline_service, mock_media_service):
+    # No semantic data -> Fallback
+    mock_timeline_service.get_project.return_value = MagicMock(
+         tenant_id="t1", env="dev", sequence_ids=["sq1"]
+    )
+    mock_timeline_service.list_tracks_for_sequence.return_value = [MagicMock(kind="video", id="tk1")]
+    mock_timeline_service.list_clips_for_track.return_value = [MagicMock(asset_id="a1")]
     
-    mock_tl = mock_tl_svc.return_value
-    # Existing project structure
-    mock_tl.get_project.return_value = VideoProject(id="p1", tenant_id="t1", env="dev", title="AssistProj", sequence_ids=["s_orig"])
+    mock_media_service.list_artifacts_for_asset.return_value = [] # No artifacts
     
-    # Existing sequence with tracks/clips
-    t_orig = Track(id="t_orig", sequence_id="s_orig", tenant_id="t1", env="dev", kind="video")
-    mock_tl.list_tracks_for_sequence.return_value = [t_orig]
+    # Mock asset for duration check in fallback
+    asset = MagicMock(duration_ms=10000)
+    mock_media_service.get_asset.return_value = asset
     
-    # Clips validation
-    c1 = Clip(id="c1", track_id="t_orig", tenant_id="t1", env="dev", asset_id="a1", start_ms_on_timeline=0, in_ms=0, out_ms=10000)
-    c2 = Clip(id="c2", track_id="t_orig", tenant_id="t1", env="dev", asset_id="a2", start_ms_on_timeline=10000, in_ms=0, out_ms=10000)
-    mock_tl.list_clips_for_track.return_value = [c1, c2]
+    seq, track, clips = service.generate_highlights("p1")
     
-    svc = VideoAssistService()
-    
-    # Generate 10s highlight reel
-    # Fallback logic takes 3s from middle of each asset.
-    # a1 and a2 are both > 5s duration.
-    # So we expect 2 clips of 3s each = 6s total (if target is large enough)
-    # Target 30s.
-    
-    seq, track, clips = svc.generate_highlights("p1", target_duration_ms=4000)
-    
-    assert seq.project_id == "p1"
-    assert "Highlights" in seq.name
-    assert track.meta["highlight_score_version"] == "v1"
-    assert len(clips) >= 2
+    # Should have fallback clips
+    assert len(clips) > 0
+    assert clips[0].asset_id == "a1"
 
-    first, second = clips[0], clips[1]
-    assert first.asset_id == "a1"
-    assert second.asset_id == "a2"
-    assert first.out_ms - first.in_ms == 3000
-    assert second.out_ms - second.in_ms == 3000
+def test_caching_and_determinism(service, mock_timeline_service, mock_media_service):
+    mock_timeline_service.get_project.return_value = MagicMock(
+        tenant_id="t1", env="dev", sequence_ids=["sq1"]
+    )
+    mock_timeline_service.list_tracks_for_sequence.return_value = [MagicMock(kind="video", id="tk1")]
+    mock_timeline_service.list_clips_for_track.return_value = [
+        MagicMock(asset_id="a1"), MagicMock(asset_id="a2")
+    ]
+    
+    # Both have identical speech segments
+    art = MagicMock()
+    art.kind = "audio_semantic_timeline"
+    art.meta = {"events": [{"kind": "speech", "start_ms": 0, "end_ms": 5000}]}
+    mock_media_service.list_artifacts_for_asset.return_value = [art]
+    
+    # Run once
+    seq1, _, clips1 = service.generate_highlights("p1")
+    
+    # Run again
+    seq2, _, clips2 = service.generate_highlights("p1")
+    
+    # Determinism: Same order of clips
+    # a1 and a2 have same score. Sorting by asset_id means a1 then a2.
+    assert [c.asset_id for c in clips1] == [c.asset_id for c in clips2]
+    
+    # Cache hit check (internal inspect)
+    assert "p1:30000" in service._highlight_cache

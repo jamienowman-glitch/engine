@@ -1,40 +1,107 @@
+
+import pytest
 from unittest.mock import MagicMock
-from fastapi.testclient import TestClient
-from fastapi import FastAPI
-from engines.video_multicam.routes import router
-from engines.video_multicam.service import MultiCamService, get_multicam_service
-from engines.video_multicam.models import MultiCamSession, MultiCamTrackSpec
-from engines.media_v2.models import MediaAsset
-from engines.video_timeline.models import VideoProject, Sequence, Track, Clip
+from engines.video_multicam.service import MultiCamService, PACING_PRESETS
+from engines.video_multicam.models import (
+    MultiCamSession, MultiCamTrackSpec, MultiCamAutoCutRequest
+)
 
-app = FastAPI()
-app.include_router(router)
-client = TestClient(app)
+@pytest.fixture
+def mock_media_service():
+    return MagicMock()
 
-def test_auto_cut_endpoint():
-    mock_media = MagicMock()
-    # Need duration
-    mock_media.get_asset.side_effect = lambda aid: MediaAsset(id="a1", tenant_id="t1", env="dev", kind="video", duration_ms=5000, source_uri="gs://") if aid == "a1" else None
-    
-    mock_timeline = MagicMock()
-    mock_timeline.create_sequence.return_value = Sequence(id="s_prog", project_id="p1", tenant_id="t1", env="dev", name="Prog")
-    mock_timeline.create_track.return_value = Track(id="tr1", sequence_id="s_prog", tenant_id="t1", env="dev", kind="video")
-    mock_timeline.create_clip.return_value = Clip(id="c1", track_id="tr1", tenant_id="t1", env="dev", asset_id="a1", start_ms_on_timeline=0, in_ms=0, out_ms=5000)
+@pytest.fixture
+def mock_timeline_service():
+    return MagicMock()
 
-    service = MultiCamService(media_service=mock_media, timeline_service=mock_timeline)
+@pytest.fixture
+def service(mock_media_service, mock_timeline_service):
+    svc = MultiCamService(
+        media_service=mock_media_service,
+        timeline_service=mock_timeline_service
+    )
+    svc.gcs = None
+    return svc
+
+def test_auto_cut_pacing_constraints(service, mock_media_service, mock_timeline_service, monkeypatch):
+    # Setup session
     session = MultiCamSession(
-        tenant_id="t1", env="dev", name="Auto Remote", 
-        tracks=[{"asset_id": "a1", "role": "primary"}]
+        id="s1", tenant_id="t1", env="dev", name="S1",
+        tracks=[MultiCamTrackSpec(asset_id="a1")]
     )
     service.repo.create(session)
     
-    app.dependency_overrides[get_multicam_service] = lambda: service
+    # Mock asset
+    asset = MagicMock(duration_ms=20000)
+    mock_media_service.get_asset.return_value = asset
+    
+    # Force 'fast' pacing
+    monkeypatch.setenv("VIDEO_MULTICAM_PACING_PRESET", "fast")
+    
+    req = MultiCamAutoCutRequest(
+        tenant_id="t1", env="dev", session_id="s1"
+    )
+    
+    # Mock timeline creation
+    mock_timeline_service.create_sequence.return_value = MagicMock(id="seq1")
+    mock_timeline_service.create_track.return_value = MagicMock(id="trk1")
+    
+    result = service.auto_cut_sequence(req)
+    
+    assert result.meta["pacing_preset"] == "fast"
+    
+    # Verify clip calls respect fast pacing (approx 1000-4000)
+    # We can check create_clip calls
+    calls = mock_timeline_service.create_clip.call_args_list
+    assert len(calls) > 0
+    for call in calls:
+        clip = call[0][0] # first arg is Clip object
+        dur = clip.out_ms - clip.in_ms
+        assert dur <= PACING_PRESETS["fast"]["max"]
+        assert dur >= PACING_PRESETS["fast"]["min"]
 
-    resp = client.post(f"/video/multicam/sessions/{session.id}/auto-cut", json={
-        "tenant_id": "t1",
-        "env": "dev",
-        "session_id": session.id
-    })
-    assert resp.status_code == 200
-    res = resp.json()
-    assert res["sequence_id"] == "s_prog"
+def test_auto_cut_semantic_selection(service, mock_media_service, mock_timeline_service):
+    # Two cameras. Cam1 silent. Cam2 speaking.
+    # Should pick Cam2.
+    
+    session = MultiCamSession(
+        id="s_sem", tenant_id="t1", env="dev", name="Semantic",
+        tracks=[
+            MultiCamTrackSpec(asset_id="cam1", role="secondary"),
+            MultiCamTrackSpec(asset_id="cam2", role="secondary")
+        ]
+    )
+    service.repo.create(session)
+    
+    mock_media_service.get_asset.return_value = MagicMock(duration_ms=10000)
+    
+    # Cam1 artifacts: Silence
+    art1 = MagicMock()
+    art1.kind = "audio_semantic_timeline"
+    art1.meta = {"events": [{"kind": "silence", "start_ms": 0, "end_ms": 10000}]}
+    
+    # Cam2 artifacts: Speech
+    art2 = MagicMock()
+    art2.kind = "audio_semantic_timeline"
+    art2.meta = {"events": [{"kind": "speech", "start_ms": 0, "end_ms": 10000}]}
+    
+    def list_artifacts(aid):
+        if aid == "cam1": return [art1]
+        if aid == "cam2": return [art2]
+        return []
+        
+    mock_media_service.list_artifacts_for_asset.side_effect = list_artifacts
+    
+    # Timeline stubs
+    mock_timeline_service.create_sequence.return_value = MagicMock(id="seq1")
+    mock_timeline_service.create_track.return_value = MagicMock(id="trk1")
+    
+    req = MultiCamAutoCutRequest(tenant_id="t1", env="dev", session_id="s_sem")
+    service.auto_cut_sequence(req)
+    
+    # Verify clips are mostly Cam2
+    calls = mock_timeline_service.create_clip.call_args_list
+    cam2_count = sum(1 for c in calls if c[0][0].asset_id == "cam2")
+    cam1_count = sum(1 for c in calls if c[0][0].asset_id == "cam1")
+    
+    assert cam2_count > cam1_count

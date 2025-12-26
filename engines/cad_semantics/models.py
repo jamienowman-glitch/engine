@@ -112,6 +112,9 @@ class SemanticModel(BaseModel):
     levels: List[Level] = Field(default_factory=list)
     spatial_graph: SpatialGraph = Field(default_factory=SpatialGraph)
     
+    # Validation info
+    warnings: List[str] = Field(default_factory=list)
+    
     # Statistics
     element_count_by_type: Dict[str, int] = Field(default_factory=dict)
     level_count: int = 0

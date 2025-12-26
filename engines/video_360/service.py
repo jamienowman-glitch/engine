@@ -17,6 +17,7 @@ from engines.video_360.models import (
     VirtualCameraKeyframe,
     VirtualCameraPath,
 )
+from engines.video_render.profiles import PROFILE_MAP
 
 
 class InMemoryPathRepository:
@@ -100,7 +101,7 @@ class Video360Service:
             
         return expr
 
-    def build_v360_filter(self, keyframes: List[VirtualCameraKeyframe]) -> str:
+    def build_v360_filter(self, keyframes: List[VirtualCameraKeyframe], width: Optional[int] = None, height: Optional[int] = None) -> str:
         yaw_expr = self._compile_expression(keyframes, "yaw", 0.0)
         pitch_expr = self._compile_expression(keyframes, "pitch", 0.0)
         roll_expr = self._compile_expression(keyframes, "roll", 0.0)
@@ -109,8 +110,11 @@ class Video360Service:
         # FFmpeg v360 filter syntax
         # input=e (equirectangular), output=flat
         # interp=linear (or cubic)
-        # w/h can be set here too but usually set by scale filter or output args
-        return f"v360=input=e:output=flat:yaw='{yaw_expr}':pitch='{pitch_expr}':roll='{roll_expr}':h_fov='{fov_expr}'"
+        dims = ""
+        if width and height:
+            dims = f":w={width}:h={height}"
+            
+        return f"v360=input=e:output=flat:yaw='{yaw_expr}':pitch='{pitch_expr}':roll='{roll_expr}':h_fov='{fov_expr}'{dims}"
 
     def render_360_to_flat(self, req: Render360Request) -> Render360Response:
         # Resolve path
@@ -133,9 +137,18 @@ class Video360Service:
         
         if not asset.is_360:
             pass # Warn? Or proceed assuming it IS equirectangular but just not marked.
+        
+        # Resolve dimensions
+        width = req.width
+        height = req.height
+        if not width or not height:
+            if req.render_profile in PROFILE_MAP:
+                prof = PROFILE_MAP[req.render_profile]
+                width = width or prof.get("width")
+                height = height or prof.get("height")
             
         # Build Command
-        filter_str = self.build_v360_filter(path.keyframes)
+        filter_str = self.build_v360_filter(path.keyframes, width, height)
         
         # Resolve Input URI (download if GCS)
         # Note: In a real app we'd reuse the download logic from render service or media service

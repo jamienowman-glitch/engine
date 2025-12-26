@@ -85,8 +85,7 @@ def test_emit_audit_event_includes_trace_and_actor(monkeypatch):
 
     monkeypatch.setattr(audit_module, "_audit_logger", fake_run)
 
-    ctx = RequestContext(
-        tenant_id="t_demo",
+    ctx = RequestContext(tenant_id="t_demo",
         env="dev",
         user_id="u_user",
         request_id="req-999",
@@ -109,8 +108,7 @@ def test_emit_audit_event_failure(monkeypatch):
 
     monkeypatch.setattr(audit_module, "_audit_logger", fail)
 
-    ctx = RequestContext(
-        tenant_id="t_demo",
+    ctx = RequestContext(tenant_id="t_demo",
         env="dev",
         user_id="u_user",
         request_id="req-500",

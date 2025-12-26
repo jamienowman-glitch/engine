@@ -33,7 +33,12 @@ class MissingDependencyError(Exception):
 
 
 def _mask_artifact_path(tenant_id: str, env: str, asset_id: str, artifact_name: str, ext: str = ".png") -> Path:
-    base = Path(tempfile.gettempdir()) / "media_v2" / "tenants" / tenant_id / env / asset_id / "regions"
+    # DoD: mask artifacts use enforced prefix: tenants/{tenant}/{env}/media_v2/{asset_id}/regions/
+    # We use a base directory that can be mounted or synced. For now, we use a fixed local root
+    # similar to how media_v2 might store things locally before GCS upload.
+    # We avoid tempfile.gettempdir() to ensure paths are predictable and stable.
+    base_root = Path(os.getenv("MEDIA_ARTIFACTS_ROOT", "/tmp/northstar/media_v2"))
+    base = base_root / "tenants" / tenant_id / env / asset_id / "regions"
     base.mkdir(parents=True, exist_ok=True)
     return base / f"{artifact_name}{ext}"
 

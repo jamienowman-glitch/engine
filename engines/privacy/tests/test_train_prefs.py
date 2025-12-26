@@ -22,8 +22,7 @@ client = TestClient(app)
 
 
 def _request_context(role: str = "member", user_id: str = "u_test"):
-    return RequestContext(
-        tenant_id="t_privacy",
+    return RequestContext(tenant_id="t_privacy",
         env="dev",
         user_id=user_id,
         membership_role=role,

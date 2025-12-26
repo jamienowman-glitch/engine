@@ -44,6 +44,7 @@ async def create_media_asset(
 ):
     """Create a media asset from either multipart upload or JSON body."""
     service = get_media_service()
+    require_tenant_membership(auth_context, request_context.tenant_id)
     if file:
         ctx = MediaUploadRequest(
             tenant_id=request_context.tenant_id,
@@ -77,6 +78,7 @@ def get_media_asset(
     auth_context: AuthContext = Depends(get_auth_context),
 ):
     service = get_media_service()
+    require_tenant_membership(auth_context, request_context.tenant_id)
     res = service.get_asset_with_artifacts(asset_id)
     if not res:
         raise HTTPException(status_code=404, detail="asset not found")
@@ -112,6 +114,7 @@ def create_artifact(
     auth_context: AuthContext = Depends(get_auth_context),
 ):
     service = get_media_service()
+    require_tenant_membership(auth_context, request_context.tenant_id)
     if auth_context.default_tenant_id != request_context.tenant_id:
         raise HTTPException(status_code=403, detail="Tenant mismatch")
     req = ArtifactCreateRequest(
@@ -129,8 +132,13 @@ def create_artifact(
 
 
 @router.get("/artifacts/{artifact_id}", response_model=DerivedArtifact)
-def get_artifact(artifact_id: str):
+def get_artifact(
+    artifact_id: str,
+    request_context: RequestContext = Depends(get_request_context),
+    auth_context: AuthContext = Depends(get_auth_context),
+):
     service = get_media_service()
+    require_tenant_membership(auth_context, request_context.tenant_id)
     artifact = service.get_artifact(artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="artifact not found")

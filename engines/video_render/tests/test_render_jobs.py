@@ -1,81 +1,104 @@
-import tempfile
-from pathlib import Path
 
-from fastapi.testclient import TestClient
+import os
+import pytest
+from unittest.mock import patch, MagicMock
 
-from engines.chat.service.server import create_app
-from engines.media_v2.models import MediaUploadRequest
-from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service
-from engines.video_render.service import get_render_service, set_render_service, RenderService
-from engines.video_render.jobs import InMemoryRenderJobRepository
-from engines.video_timeline.models import Clip, Sequence, Track, VideoProject
-from engines.video_timeline.service import InMemoryTimelineRepository, TimelineService, set_timeline_service
+from engines.video_render.service import RenderService
+from engines.video_render.jobs import InMemoryRenderJobRepository, VideoRenderJob
+from engines.video_render.models import RenderRequest
+from engines.media_v2.service import MediaService, set_media_service, InMemoryMediaRepository, LocalMediaStorage
+from engines.video_timeline.service import TimelineService, set_timeline_service, InMemoryTimelineRepository
 
-
-def setup_module(_module):
-    set_media_service(MediaService(repo=InMemoryMediaRepository()))
+def setup_function():
+    set_media_service(MediaService(repo=InMemoryMediaRepository(), storage=LocalMediaStorage()))
     set_timeline_service(TimelineService(repo=InMemoryTimelineRepository()))
-    set_render_service(RenderService(job_repo=InMemoryRenderJobRepository()))
 
+def _get_service(max_concurrent=10):
+    svc = RenderService(job_repo=InMemoryRenderJobRepository())
+    svc._max_concurrent_jobs = max_concurrent
+    return svc
 
-def seed_project():
-    media_service = MediaService(repo=InMemoryMediaRepository())
-    timeline_service = TimelineService(repo=InMemoryTimelineRepository())
-    set_media_service(media_service)
-    set_timeline_service(timeline_service)
-    set_render_service(RenderService(job_repo=InMemoryRenderJobRepository()))
-
-    vid = Path(tempfile.mkdtemp()) / "v.mp4"
-    vid.write_bytes(b"video")
-    asset = media_service.register_remote(MediaUploadRequest(tenant_id="t_test", env="dev", user_id="u1", kind="video", source_uri=str(vid)))
-    project = timeline_service.create_project(VideoProject(tenant_id="t_test", env="dev", user_id="u1", title="Job Demo"))
-    sequence = timeline_service.create_sequence(Sequence(tenant_id="t_test", env="dev", user_id="u1", project_id=project.id, name="Seq", timebase_fps=30))
-    track = timeline_service.create_track(Track(tenant_id="t_test", env="dev", user_id="u1", sequence_id=sequence.id, kind="video", order=0))
-    timeline_service.create_clip(Clip(tenant_id="t_test", env="dev", user_id="u1", track_id=track.id, asset_id=asset.id, in_ms=0, out_ms=500, start_ms_on_timeline=0))
-    return project
-
-
-def test_render_job_run_and_cache():
-    project = seed_project()
-    client = TestClient(create_app())
-
-    # Create job
-    resp = client.post(
-        "/video/render/jobs",
-        json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
+def _dummy_req(tenant="t1", project="p1"):
+    return RenderRequest(
+        tenant_id=tenant, env="dev", user_id="u1", project_id=project, 
+        render_profile="social_1080p_h264", dry_run=False
     )
-    assert resp.status_code == 200
-    job = resp.json()
 
-    # Run job
-    run_resp = client.post(f"/video/render/jobs/{job['id']}/run")
-    assert run_resp.status_code == 200
-    run_job = run_resp.json()
-    assert run_job["status"] in {"succeeded", "failed"}
+def test_idempotency_active_job():
+    """Verify create_job returns existing active job if found."""
+    service = _get_service()
+    req = _dummy_req()
+    
+    with patch("engines.video_render.service.RenderService._build_plan", return_value=MagicMock(model_dump=lambda: {})):
+         # First creation
+         job1 = service.create_job(req)
+         assert job1.status == "queued"
+         
+         # Second creation - should return same job (active)
+         job2 = service.create_job(req)
+         assert job2.id == job1.id
+         assert job2.status == "queued"
+         
+         # Move to running
+         job1.status = "running"
+         service.job_repo.update(job1)
+         
+         # Third creation - should still return same job
+         job3 = service.create_job(req)
+         assert job3.id == job1.id
+         assert job3.status == "running"
 
-    # Create another job same project/profile, expect immediate success via cache
-    resp2 = client.post(
-        "/video/render/jobs",
-        json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
-    )
-    assert resp2.status_code == 200
-    job2 = resp2.json()
-    assert job2["render_cache_key"] == job["render_cache_key"]
-    assert job2["status"] in {"succeeded", "queued"}
+def test_cancel_job():
+    """Verify cancellation flow."""
+    service = _get_service()
+    req = _dummy_req()
+    
+    with patch("engines.video_render.service.RenderService._build_plan", return_value=MagicMock(model_dump=lambda: {})):
+        job = service.create_job(req)
+        assert job.status == "queued"
+        
+        service.cancel_job(job.id)
+        
+        updated = service.job_repo.get(job.id)
+        assert updated.status == "cancelled"
+        
+        # Try cancel again (idempotent/safe)
+        service.cancel_job(job.id)
+        updated2 = service.job_repo.get(job.id)
+        assert updated2.status == "cancelled"
 
+def test_resume_job():
+    """Verify resume flow."""
+    service = _get_service()
+    req = _dummy_req()
+    
+    with patch("engines.video_render.service.RenderService._build_plan", return_value=MagicMock(model_dump=lambda: {})):
+        job = service.create_job(req)
+        # Manually fail it
+        job.status = "failed"
+        job.error_message = "boom"
+        service.job_repo.update(job)
+        
+        # Resume
+        resumed = service.resume_job(job.id)
+        assert resumed.status == "queued"
+        assert resumed.progress == 0.0
+        assert resumed.error_message is None
 
-def test_render_job_backpressure():
-    project = seed_project()
-    service = get_render_service()
-    service._max_concurrent_jobs = 1
-    client = TestClient(create_app())
-    resp = client.post(
-        "/video/render/jobs",
-        json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
-    )
-    assert resp.status_code == 200
-    resp2 = client.post(
-        "/video/render/jobs",
-        json={"tenant_id": "t_test", "env": "dev", "user_id": "u1", "project_id": project.id, "render_profile": "social_1080p_h264", "dry_run": True},
-    )
-    assert resp2.status_code == 400
+def test_backpressure():
+    """Verify max concurrent jobs limit."""
+    service = _get_service(max_concurrent=2)
+    req1 = _dummy_req(project="p1")
+    req2 = _dummy_req(project="p2")
+    req3 = _dummy_req(project="p3")
+    
+    with patch("engines.video_render.service.RenderService._build_plan", return_value=MagicMock(model_dump=lambda: {})):
+        job1 = service.create_job(req1)
+        job2 = service.create_job(req2)
+        
+        assert job1.status == "queued"
+        assert job2.status == "queued"
+        
+        # Third one should fail
+        with pytest.raises(RuntimeError, match="max concurrent render jobs reached"):
+            service.create_job(req3)

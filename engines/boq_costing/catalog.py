@@ -8,6 +8,7 @@ Implements:
 """
 
 from engines.boq_costing.models import Currency, CostCatalog, RateRecord
+from engines.boq_quantities.models import UnitType
 
 
 def create_default_catalog() -> CostCatalog:
@@ -19,28 +20,28 @@ def create_default_catalog() -> CostCatalog:
     """
     rates = [
         # Wall rates (per m²)
-        RateRecord(element_type="wall", unit_type="m2", unit_rate=150.0, description="Wall assembly per m²"),
+        RateRecord(element_type="wall", unit_type=UnitType.M2.value, unit_rate=150.0, description="Wall assembly per m²"),
         
         # Slab rates (per m²)
-        RateRecord(element_type="slab", unit_type="m2", unit_rate=200.0, description="Slab assembly per m²"),
+        RateRecord(element_type="slab", unit_type=UnitType.M2.value, unit_rate=200.0, description="Slab assembly per m²"),
         
         # Door rates (per unit)
-        RateRecord(element_type="door", unit_type="count", unit_rate=800.0, description="Door unit"),
+        RateRecord(element_type="door", unit_type=UnitType.COUNT.value, unit_rate=800.0, description="Door unit"),
         
         # Window rates (per unit)
-        RateRecord(element_type="window", unit_type="count", unit_rate=500.0, description="Window unit"),
+        RateRecord(element_type="window", unit_type=UnitType.COUNT.value, unit_rate=500.0, description="Window unit"),
         
         # Column rates (per unit)
-        RateRecord(element_type="column", unit_type="count", unit_rate=1200.0, description="Column unit"),
+        RateRecord(element_type="column", unit_type=UnitType.COUNT.value, unit_rate=1200.0, description="Column unit"),
         
         # Room rates (per m²)
-        RateRecord(element_type="room", unit_type="m2", unit_rate=100.0, description="Room finishing per m²"),
+        RateRecord(element_type="room", unit_type=UnitType.M2.value, unit_rate=100.0, description="Room finishing per m²"),
         
         # Stair rates (per unit)
-        RateRecord(element_type="stair", unit_type="count", unit_rate=5000.0, description="Stair unit"),
+        RateRecord(element_type="stair", unit_type=UnitType.COUNT.value, unit_rate=5000.0, description="Stair unit"),
         
         # Unknown/other (per item)
-        RateRecord(element_type="unknown", unit_type="count", unit_rate=100.0, description="Default unknown item"),
+        RateRecord(element_type="unknown", unit_type=UnitType.COUNT.value, unit_rate=100.0, description="Default unknown item"),
     ]
     
     # FX rates relative to USD (illustrative)
@@ -84,3 +85,41 @@ def apply_markup_and_tax(
     total = marked_up + tax
     
     return marked_up, tax, total
+
+
+class CatalogRegistry:
+    """Registry of available cost catalogs."""
+    
+    def __init__(self):
+        self._catalogs: dict[str, CostCatalog] = {}
+        # Load default
+        default = create_default_catalog()
+        self.register(default)
+        
+        # Load sample future catalog
+        future = create_default_catalog()
+        future.version = "2025-Q1"
+        future.meta["description"] = "Sample future catalog with +10% rates"
+        # Bump rates by 10% for demo
+        for r in future.rates:
+            r.unit_rate *= 1.10
+        self.register(future)
+    
+    def register(self, catalog: CostCatalog) -> None:
+        """Register a catalog."""
+        self._catalogs[catalog.version] = catalog
+    
+    def get(self, version: str) -> CostCatalog | None:
+        """Get catalog by version."""
+        return self._catalogs.get(version)
+    
+    def list_versions(self) -> list[str]:
+        """List available versions."""
+        return sorted(list(self._catalogs.keys()))
+
+
+# Global registry instance
+_registry = CatalogRegistry()
+
+def get_catalog_registry() -> CatalogRegistry:
+    return _registry

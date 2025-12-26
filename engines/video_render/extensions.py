@@ -12,14 +12,6 @@ def resolve_region_masks_for_clip(
     clip: Clip,
     filters: List[Filter]
 ) -> Dict[int, str]:
-    """
-    Checks if any filters on the clip require region masks (teeth_whiten, skin_smooth).
-    If so, looks up the RegionAnalysisSummary for the asset.
-    Finds the matching mask artifact for the region type at the clip time.
-    Returns a dict mapping filter index -> mask artifact URI.
-    """
-    
-    # 1. Identify region-aware filters
     region_filters: List[Tuple[int, str]] = [] # (index, region_type)
     for i, f in enumerate(filters):
         if not f.enabled:
@@ -33,52 +25,51 @@ def resolve_region_masks_for_clip(
         elif f.type == "face_blur":
             region_filters.append((i, "face"))
 
+    print(f"DEBUG: region_filters={region_filters}")
     if not region_filters:
         return {}
     
-    # 2. Look up summary
-    # Scan artifacts for video_region_summary
-    # Cache this lookup in service if expensive, but for now simple list
     artifacts = media_service.list_artifacts_for_asset(clip.asset_id)
+    print(f"DEBUG: Found {len(artifacts)} artifacts for asset {clip.asset_id}")
+    for a in artifacts:
+        print(f"DEBUG: Art kind={a.kind} id={a.id}")
+
     summary_art = next((a for a in artifacts if a.kind == "video_region_summary"), None)
     
     if not summary_art:
-        # No regions analyzed
+        print("DEBUG: No video_region_summary found")
         return {}
     
-    # 3. Load summary content
-    # In V1 stub, content is in local file pointed to by URI.
-    # Service needs to download/read it.
-    # We assume URI is readable (local or generic open)
     try:
-        # Resolve URI via service helper if GCS? passed in media service usually handles 'ensure_local' only during render.
-        # Here we need to read JSON.
-        # Assuming for V1 stub it's local.
-        # Real implementation would use a helper to fetch JSON content.
         import json
+        from engines.video_regions.models import RegionAnalysisSummary
+        print(f"DEBUG: Reading summary from {summary_art.uri}")
         with open(summary_art.uri, "r") as f:
             data = json.load(f)
+            print(f"DEBUG: Loaded JSON: {data}")
             summary = RegionAnalysisSummary.model_validate(data)
-    except Exception:
-        # Failed to read summary
+            print(f"DEBUG: Validated summary model with {len(summary.entries)} entries")
+    except Exception as e:
+        print(f"DEBUG: Failed to read summary: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
         
     mask_map = {}
-    
-    # 4. Find mask for each filter
-    # For V1 stub, we assume 1 entry per region covers the whole file or we just use the first match.
-    # Real logic: find entry overlapping clip.start_ms_on_timeline mapped to asset time.
-    # Clip in/out ms refers to asset time.
     clip_in = clip.in_ms
     
     for idx, region_type in region_filters:
-        # Find entry for this region
-        # Trivial V1: First entry matching region
+        print(f"DEBUG: Looking for region={region_type}")
         entry = next((e for e in summary.entries if e.region == region_type), None)
         if entry:
-             # Look up mask artifact from entry.mask_artifact_id
+             print(f"DEBUG: Found entry: {entry}")
              mask_art = media_service.get_artifact(entry.mask_artifact_id)
              if mask_art:
+                 print(f"DEBUG: Found mask artifact: {mask_art.uri}")
                  mask_map[idx] = mask_art.uri
+             else:
+                 print(f"DEBUG: Mask artifact {entry.mask_artifact_id} not found")
+        else:
+             print(f"DEBUG: No entry found for {region_type}")
                  
     return mask_map

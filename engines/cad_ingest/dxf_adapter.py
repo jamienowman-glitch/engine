@@ -264,7 +264,11 @@ def dxf_to_cad_model(
         if detected:
             units = UnitKind(detected)
         else:
-            units = UnitKind.MILLIMETER  # Default
+            # DXF file missing unit specification; ambiguous
+            raise ValueError(
+                "DXF file missing unit specification ($UNITS); provide unit_hint "
+                "(mm|cm|m|ft|in)"
+            )
     
     # Extract layers
     layers = []

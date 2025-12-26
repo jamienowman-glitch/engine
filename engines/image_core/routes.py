@@ -1,10 +1,11 @@
 """HTTP routes for image_core service."""
 
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
+from pydantic import BaseModel, Field
 
 from engines.image_core.models import ImageComposition, ImageLayer
-from engines.image_core.service import get_image_core_service
+from engines.image_core.service import ImageCoreService, get_image_core_service
 from engines.image_core.template_service import get_template_service
 from engines.image_core.template_models import CompositionTemplate, RenderFromTemplateRequest
 from engines.image_core.api_models import (
@@ -17,6 +18,47 @@ from engines.image_core.api_models import (
 )
 
 router = APIRouter(prefix="/image", tags=["image_core"])
+
+
+class SocialThumbnailPreset(BaseModel):
+    preset_id: str
+    width: int
+    height: int
+    aspect_ratio: str
+    format: str
+    quality: Optional[int]
+    recipe_id: str
+    safe_title_box: Dict[str, Any]
+
+
+class SocialThumbnailListResponse(BaseModel):
+    presets: List[SocialThumbnailPreset]
+    total_count: int
+
+
+class SocialThumbnailRecipeRequest(BaseModel):
+    tenant_id: str = Field(..., description="Tenant ID")
+    env: str = Field(..., description="Environment (dev/test/prod)")
+    asset_id: str = Field(..., description="Source asset ID for the photo")
+    preset_id: str = Field(..., description="Social thumbnail preset (e.g., 'youtube_thumb_16_9')")
+    title: str = Field(..., description="Headline text for the thumbnail")
+    extend_canvas: bool = Field(default=False, description="Extend the canvas with mirror/blur edges")
+    bw_background: bool = Field(default=True, description="Render the background in black & white")
+    canvas_extension_mode: Literal["mirror_blur", "generative_fill"] = Field(
+        default="mirror_blur",
+        description="Extension strategy—fallback to mirror/blur unless a generative fill provider is configured",
+    )
+
+
+class SocialThumbnailRecipeResponse(BaseModel):
+    artifact_id: str
+    preset_id: str
+    recipe_id: str
+    subject_mask_id: Optional[str]
+    width: int
+    height: int
+    safe_title_box: Dict[str, Any]
+    meta: Dict[str, Any]
 
 
 def _composition_from_dict(data: Dict[str, Any]) -> ImageComposition:
@@ -196,6 +238,61 @@ def list_presets() -> PresetsListResponse:
         presets=presets_info,
         total_count=len(presets_info),
     )
+
+
+@router.get("/social-thumbnails", response_model=SocialThumbnailListResponse)
+def list_social_thumbnail_presets() -> SocialThumbnailListResponse:
+    """
+    List the COMFORT social thumbnail recipe presets with safe-title defaults.
+    """
+    service = get_image_core_service()
+    presets = service.list_social_thumbnail_presets()
+    return SocialThumbnailListResponse(
+        presets=[SocialThumbnailPreset(**preset) for preset in presets],
+        total_count=len(presets),
+    )
+
+
+@router.post("/social-thumbnails/recipe", response_model=SocialThumbnailRecipeResponse)
+def create_social_thumbnail(req: SocialThumbnailRecipeRequest) -> SocialThumbnailRecipeResponse:
+    """
+    Build a COMFORT social thumbnail via the No-Code-Man recipe.
+    """
+    service = get_image_core_service()
+    try:
+        artifact = service.create_social_thumbnail(
+            req.asset_id,
+            req.title,
+            req.preset_id,
+            req.tenant_id,
+            req.env,
+            extend_canvas=req.extend_canvas,
+            extend_canvas_mode=req.canvas_extension_mode,
+            bw_background=req.bw_background,
+        )
+        meta = artifact.meta or {}
+        preset = service.get_social_thumbnail_preset(req.preset_id)
+        width = meta.get("width", preset["width"] if preset else 0)
+        height = meta.get("height", preset["height"] if preset else 0)
+        safe_box = meta.get(
+            "safe_title_box", preset["safe_title_box"] if preset else {}
+        )
+        return SocialThumbnailRecipeResponse(
+            artifact_id=artifact.id,
+            preset_id=meta.get("preset_id", req.preset_id),
+            recipe_id=meta.get("recipe_id", service.NO_CODE_MAN_RECIPE_ID),
+            subject_mask_id=meta.get("subject_mask_id"),
+            width=width,
+            height=height,
+            safe_title_box=safe_box,
+            meta=meta,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create social thumbnail: {exc}"
+        )
 
 
 # ============================================================================

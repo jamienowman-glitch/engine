@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Protocol
 
-from engines.identity.models import Tenant, TenantAnalyticsConfig, TenantKeyConfig, TenantMembership, User
+from engines.identity.models import Tenant, TenantAnalyticsConfig, TenantKeyConfig, TenantMembership, User, TenantMode
 
 
 class IdentityRepository(Protocol):
@@ -31,6 +31,11 @@ class IdentityRepository(Protocol):
     def upsert_analytics_config(self, config: TenantAnalyticsConfig) -> TenantAnalyticsConfig: ...
     def list_analytics_configs(self, tenant_id: str, env: Optional[str] = None, surface: Optional[str] = None) -> list[TenantAnalyticsConfig]: ...
     def get_analytics_config(self, tenant_id: str, env: str, surface: str) -> Optional[TenantAnalyticsConfig]: ...
+    
+    def create_tenant_mode(self, mode: TenantMode) -> TenantMode: ...
+    def get_tenant_mode(self, mode_id: str) -> Optional[TenantMode]: ...
+    def get_tenant_mode_by_name(self, name: str) -> Optional[TenantMode]: ...
+    def list_tenant_modes(self) -> list[TenantMode]: ...
 
 
 class InMemoryIdentityRepository:
@@ -42,6 +47,8 @@ class InMemoryIdentityRepository:
         self._memberships: Dict[str, TenantMembership] = {}
         self._keys: Dict[tuple[str, str, str], TenantKeyConfig] = {}
         self._analytics: Dict[tuple[str, str, str], TenantAnalyticsConfig] = {}
+        self._tenant_modes: Dict[str, TenantMode] = {}
+
 
     # Users
     def create_user(self, user: User) -> User:
@@ -128,6 +135,23 @@ class InMemoryIdentityRepository:
     def get_analytics_config(self, tenant_id: str, env: str, surface: str) -> Optional[TenantAnalyticsConfig]:
         return self._analytics.get((tenant_id, env, surface))
 
+    # Tenant Modes
+    def create_tenant_mode(self, mode: TenantMode) -> TenantMode:
+        self._tenant_modes[mode.id] = mode
+        return mode
+
+    def get_tenant_mode(self, mode_id: str) -> Optional[TenantMode]:
+        return self._tenant_modes.get(mode_id)
+
+    def get_tenant_mode_by_name(self, name: str) -> Optional[TenantMode]:
+        for mode in self._tenant_modes.values():
+            if mode.name == name:
+                return mode
+        return None
+
+    def list_tenant_modes(self) -> list[TenantMode]:
+        return list(self._tenant_modes.values())
+
 
 class FirestoreIdentityRepository:
     """Firestore-backed identity repository.
@@ -138,7 +162,9 @@ class FirestoreIdentityRepository:
     - identity_memberships/{membership_id}
     - key_configs/{tenant_env_slot}
     - analytics_configs/{tenant_env_surface}
+    - tenant_modes/{mode_id}
     """
+
 
     def __init__(self, client: Optional[object] = None) -> None:
         try:
@@ -156,6 +182,8 @@ class FirestoreIdentityRepository:
         self._col_memberships = "identity_memberships"
         self._col_keys = "key_configs"
         self._col_analytics = "analytics_configs"
+        self._col_tenant_modes = "tenant_modes"
+
 
     def _col(self, name: str):
         return self._client.collection(name)
@@ -283,3 +311,21 @@ class FirestoreIdentityRepository:
     def get_analytics_config(self, tenant_id: str, env: str, surface: str) -> Optional[TenantAnalyticsConfig]:
         snap = self._col(self._col_analytics).document(f"{tenant_id}_{env}_{surface}").get()
         return TenantAnalyticsConfig(**snap.to_dict()) if snap and snap.exists else None
+    # Tenant Modes
+    def create_tenant_mode(self, mode: TenantMode) -> TenantMode:
+        self._col(self._col_tenant_modes).document(mode.id).set(mode.model_dump())
+        return mode
+
+    def get_tenant_mode(self, mode_id: str) -> Optional[TenantMode]:
+        snap = self._col(self._col_tenant_modes).document(mode_id).get()
+        return TenantMode(**snap.to_dict()) if snap and snap.exists else None
+
+    def get_tenant_mode_by_name(self, name: str) -> Optional[TenantMode]:
+        docs = self._col(self._col_tenant_modes).where("name", "==", name).limit(1).stream()
+        for d in docs:
+            return TenantMode(**d.to_dict())
+        return None
+
+    def list_tenant_modes(self) -> list[TenantMode]:
+        docs = self._col(self._col_tenant_modes).stream()
+        return [TenantMode(**d.to_dict()) for d in docs]

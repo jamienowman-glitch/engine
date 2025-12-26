@@ -180,18 +180,24 @@ class MultiCamService:
         session = self.get_session(req.session_id)
         if not session:
             raise ValueError("Session not found")
+        
+        # Enforce Tenant/Env
+        if session.tenant_id != req.tenant_id:
+             logger.warning("Tenant mismatch for session %s: req %s vs session %s", session.id, req.tenant_id, session.tenant_id)
+             raise ValueError("Access Denied: Tenant mismatch")
+        if session.env != req.env:
+             logger.warning("Env mismatch for session %s: req %s vs session %s", session.id, req.env, session.env)
+             raise ValueError("Access Denied: Environment mismatch")
 
         # Resolve paths
         asset_map = {}
         for t in session.tracks:
             asset = self.media_service.get_asset(t.asset_id)
             if asset:
-                 # Download if needed
                  local_path = self._ensure_local(asset.source_uri)
                  if os.path.exists(local_path):
                      asset_map[t.asset_id] = local_path
                  else:
-                     # Fallback to URI if not exists (might be http or local absolute)
                      asset_map[t.asset_id] = asset.source_uri
 
         base_asset_id = session.base_asset_id or session.tracks[0].asset_id
@@ -202,38 +208,71 @@ class MultiCamService:
         overrides = self._parse_timecode_overrides()
         cache_key = f"{req.alignment_method}:{req.max_search_ms}:{ALIGNMENT_CACHE_VERSION}"
         cached = session.meta.get("alignment_cache", {}).get(cache_key)
+        
+        offsets: Dict[str, int] = {}
+        confidences: Dict[str, float] = {}
+        cache_hit = False
+
         if cached:
-            offsets = dict(cached)
+            # V04 Upgrade: Support {"offsets": ..., "confidences": ...} or legacy dict[str, int]
+            cache_hit = True
+            if "offsets" in cached and isinstance(cached["offsets"], dict):
+                offsets = dict(cached["offsets"])
+                confidences = dict(cached.get("confidences", {}))
+            else:
+                # Legacy cache (just offsets)
+                offsets = dict(cached)
+                confidences = {} 
+            
             logger.info("Alignment cache hit for session %s", session.id)
+            
             if overrides:
                 for aid, value in overrides.items():
                     if aid in offsets:
                         offsets[aid] = value
+                        # If we override, confidence is manually enforced to 1.0? 
+                        # Or we leave it as computed? 
+                        # Let's say confidence is 1.0 for manual overrides.
+                        confidences[aid] = 1.0
                         logger.info("Applied timecode override for %s -> %s ms", aid, value)
         else:
-            offsets: Dict[str, int] = {}
-            master_samples = self._waveform_samples_for_asset(self.media_service.get_asset(base_asset_id))
+            mas = self.media_service.get_asset(base_asset_id)
+            master_samples = self._waveform_samples_for_asset(mas) if mas else None
+            
             for asset_id, path in asset_map.items():
                 if asset_id == base_asset_id:
                     offsets[asset_id] = 0
+                    confidences[asset_id] = 1.0
                     continue
                 if req.alignment_method == "stub":
                     offsets[asset_id] = 0
+                    confidences[asset_id] = 1.0
                     continue
                 if req.alignment_method == "waveform_cross_correlation" and master_samples:
+                    # Synthetic/Meta-based fallback
                     angle_asset = self.media_service.get_asset(asset_id)
                     angle_samples = self._waveform_samples_for_asset(angle_asset) or []
                     if angle_samples:
                         offsets[asset_id] = self._cross_correlation_offset(master_samples, angle_samples, req.max_search_ms)
+                        confidences[asset_id] = 0.5 
                         logger.info("Cross-corr offset %s -> %s ms", asset_id, offsets[asset_id])
                         continue
-                offsets[asset_id] = int(self._align_via_backend(base_path, path))
+                
+                # Real Backend
+                off, conf = self._align_via_backend(base_path, path)
+                offsets[asset_id] = int(off)
+                confidences[asset_id] = conf
 
-            session.meta.setdefault("alignment_cache", {})[cache_key] = dict(offsets)
+            # Store structured cache
+            session.meta.setdefault("alignment_cache", {})[cache_key] = {
+                "offsets": offsets,
+                "confidences": confidences
+            }
             session.meta["last_alignment"] = {
                 "method": req.alignment_method,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "offsets": offsets,
+                "confidences": confidences,
             }
 
         # Update session
@@ -246,9 +285,12 @@ class MultiCamService:
         result_meta = {
             "method": req.alignment_method,
             "cache_key": cache_key,
-            "cache_hit": bool(cached),
+            "cache_hit": cache_hit,
             "alignment_version": ALIGNMENT_CACHE_VERSION,
         }
+        if confidences:
+             result_meta["confidences"] = confidences
+
         if overrides:
             result_meta["timecode_overrides"] = overrides
         return MultiCamAlignResult(
@@ -505,42 +547,89 @@ class MultiCamService:
         return score
 
     def _semantic_energy(self, info: Dict[str, Any], start: float, end: float) -> float:
+        # artifacts is list of Artifact objects. We need to check 'kind' and 'meta'.
+        # `info['artifacts']` came from media_service.list_artifacts_for_asset.
+        # Assuming they are dicts or objects. `list_artifacts_for_asset` returns objects usually.
+        # Code above accessed `art.kind`.
         window_len = max(1.0, end - start)
         coverage = 0.0
         found = False
+        
         for art in info.get("artifacts", []):
-            if art.kind != "audio_semantic_timeline":
+            # Check kind. Handle both "audio_semantic_timeline" and potential future types
+            if getattr(art, "kind", "") != "audio_semantic_timeline":
                 continue
-            events = art.meta.get("events", [])
+            
+            # Semantic events are in art.meta["events"]
+            meta = getattr(art, "meta", {}) or {}
+            events = meta.get("events", [])
             for evt in events:
+                # We care about "speech" or maybe "music" if it's a music video?
+                # For multicam dialogue, "speech" is king.
+                if evt.get("kind") != "speech":
+                    continue
+                    
                 evt_start = evt.get("start_ms")
                 evt_end = evt.get("end_ms")
                 if evt_start is None or evt_end is None:
                     continue
-                overlap = max(0.0, min(end, evt_end) - max(start, evt_start))
-                if overlap <= 0:
-                    continue
-                found = True
-                coverage += overlap / window_len
+                
+                # Intersection
+                overlap_start = max(start, evt_start)
+                overlap_end = min(end, evt_end)
+                overlap = max(0.0, overlap_end - overlap_start)
+                
+                if overlap > 0:
+                    found = True
+                    coverage += overlap
+        
         if not found:
-            logger.debug("No semantic energy for %s between %s-%s", info.get("asset_id"), start, end)
-            return 0.0
-        return min(1.0, coverage)
+             # Fallback: if no semantic timeline exists, return 0 (neutral) or maybe small value?
+             # But if it exists and has no speech, return 0.
+             # If NO artifact exists, we might want to return 0.5 (neutral) so we don't punish it?
+             # Logic above: "found = True" only if we see overlap.
+             # If artifact missing, loop finishes found=False.
+             # Log debug.
+             return 0.0
+             
+        # Normalize
+        ratio = coverage / window_len
+        # Boost ratio so even 50% speech feels "active"
+        score = min(1.0, ratio * 1.5)
+        return score
 
     def _visual_motion_score(self, info: Dict[str, Any], start: float, end: float) -> float:
         samples: List[float] = []
+        found_artifact = False
+        
         for art in info.get("artifacts", []):
-            if art.kind not in {"visual_meta", "video_visual_meta"}:
+            kind = getattr(art, "kind", "")
+            if kind not in ("visual_meta", "video_visual_meta"):
                 continue
-            frames = art.meta.get("frames", [])
+            
+            found_artifact = True
+            meta = getattr(art, "meta", {}) or {}
+            frames = meta.get("frames", [])
+            
+            # Simple frame sampling
             for frame in frames:
                 ts = frame.get("timestamp_ms")
-                if ts is None or ts < start or ts >= end:
+                if ts is None:
                     continue
-                samples.append(frame.get("motion_score", frame.get("primary_subject_movement", 0.0)))
+                if start <= ts < end:
+                    # Prefer "motion_score", fallback to "primary_subject_movement"
+                    val = frame.get("motion_score")
+                    if val is None:
+                         val = frame.get("primary_subject_movement", 0.0)
+                    samples.append(float(val))
+        
+        if not found_artifact:
+             # If no visual meta, assume moderate motion to avoid penalizing
+             return 0.2
+             
         if not samples:
-            logger.debug("No visual motion for %s between %s-%s", info.get("asset_id"), start, end)
             return 0.0
+            
         avg = sum(samples) / len(samples)
         return min(1.0, avg)
 

@@ -47,8 +47,7 @@ def test_sse_event_stream_resume():
     first = _add_message(thread_id, "user-alpha", "first", "msg-first")
     second = _add_message(thread_id, "user-beta", "second", "msg-second")
 
-    context = RequestContext(
-        request_id="trace-sse-1",
+    context = RequestContext(request_id="trace-sse-1",
         tenant_id="t_alpha",
         env="dev",
         user_id="user-alpha",
