@@ -199,3 +199,13 @@ def test_register_persists_metadata():
     assert stored is not None
     assert stored.asset_id == "asset999"
     assert stored.filename == "data.json"
+
+def test_missing_bucket_raises():
+    """Test that S3RawStorageRepository fails when bucket is not configured on usage."""
+    # Temporarily clear RAW_BUCKET and create repo
+    with mock.patch.dict(os.environ, {"RAW_BUCKET": ""}, clear=False):
+        repo = S3RawStorageRepository(bucket_name=None)
+        
+        # Try to generate presigned URL without bucket - should fail
+        with pytest.raises(HTTPException, match="RAW_BUCKET config missing"):
+            repo.generate_presigned_post("t_demo", "dev", "asset123", "file.txt", "text/plain")

@@ -52,7 +52,7 @@ def test_chat_fails_fast(clean_env):
     
     bus = transport_layer.bus
     
-    with pytest.raises(RuntimeError, match="CHAT_BUS_BACKEND must be 'redis'"):
+    with pytest.raises(RuntimeError, match="not allowed in Real Infra mode"):
         getattr(bus, "list_threads")
 
 def test_nexus_fails_fast_on_memory(clean_env):
@@ -73,3 +73,48 @@ def test_nexus_fails_unknown(clean_env):
              importlib.reload(backends)
              backends.get_backend()
 
+
+# ===== Lane 3: Routing Registry Tests =====
+
+def test_routing_registry_missing_resource_kind():
+    """Test that routing registry raises MissingRoutingConfig when resource not found."""
+    from engines.routing.registry import (
+        InMemoryRoutingRegistry,
+        set_routing_registry,
+        MissingRoutingConfig,
+    )
+    from engines.routing.manager import get_route_config
+    
+    registry = InMemoryRoutingRegistry()
+    set_routing_registry(registry)
+    
+    with pytest.raises(MissingRoutingConfig):
+        get_route_config("nonexistent", "t_system", "prod", fail_fast=True)
+
+
+def test_routing_registry_backend_type_validation():
+    """Test that routing registry allows valid backend types."""
+    from uuid import uuid4
+    from engines.routing.registry import (
+        ResourceRoute,
+        InMemoryRoutingRegistry,
+        set_routing_registry,
+    )
+    from engines.routing.manager import get_backend_type
+    
+    registry = InMemoryRoutingRegistry()
+    set_routing_registry(registry)
+    
+    # Feature flags should be firestore
+    route = ResourceRoute(
+        id=str(uuid4()),
+        resource_kind="feature_flags",
+        tenant_id="t_system",
+        env="prod",
+        backend_type="firestore",
+        required=True,
+    )
+    registry.upsert_route(route)
+    
+    backend = get_backend_type("feature_flags", "t_system", "prod", fail_fast=True)
+    assert backend == "firestore"
