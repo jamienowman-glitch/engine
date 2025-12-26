@@ -92,8 +92,9 @@ def test_segment_jobs_and_stitch_plan():
     jobs = jobs_resp.json()
     assert len(jobs) == 2
 
+    headers = {"X-Tenant-Id": "t_test", "X-Env": "dev", "X-Project-Id": project.id}
     for job in jobs:
-        run_resp = client.post(f"/video/render/jobs/{job['id']}/run")
+        run_resp = client.post(f"/video/render/jobs/{job['id']}/run", headers=headers)
         assert run_resp.status_code == 200
         assert run_resp.json()["status"] in {"succeeded", "failed"}
 

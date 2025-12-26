@@ -57,22 +57,27 @@ def test_render_plan_masked_filter_graph():
     
     # Add a Masked Filter to the Clip
     # e.g. "Teeth Whitening" -> desaturate
-    timeline_service.create_filter_stack(
-        FilterStack(
-            tenant_id="t_test", 
-            env="dev", 
-            target_type="clip", 
-            target_id=clip.id,
-            filters=[
-                Filter(
-                    type="saturation", 
-                    params={"amount": -1.0}, # desaturate 
-                    enabled=True,
-                    mask_artifact_id=mask_art.id # Apply only to mask
-                )
-            ]
+    original_filters = TimelineService.KNOWN_FILTERS
+    try:
+        TimelineService.KNOWN_FILTERS = original_filters | {"saturation"}
+        timeline_service.create_filter_stack(
+            FilterStack(
+                tenant_id="t_test", 
+                env="dev", 
+                target_type="clip", 
+                target_id=clip.id,
+                filters=[
+                    Filter(
+                        type="saturation", 
+                        params={"amount": -1.0}, # desaturate 
+                        enabled=True,
+                        mask_artifact_id=mask_art.id # Apply only to mask
+                    )
+                ]
+            )
         )
-    )
+    finally:
+        TimelineService.KNOWN_FILTERS = original_filters
 
     client = make_video_render_client()
     resp = client.post(

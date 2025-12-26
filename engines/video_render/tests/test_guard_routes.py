@@ -1,8 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from engines.video_render.routes import router
-from engines.identity.auth import get_auth_context
+from engines.video_render.routes import router, get_auth_context
 from engines.identity.jwt_service import AuthContext
 
 
@@ -38,7 +37,13 @@ def test_missing_project_id_returns_400():
 
 
 def test_missing_auth_returns_401():
-    client = TestClient(_build_app())
+    app = _build_app()
+
+    def _missing_auth_context():
+        raise HTTPException(status_code=401, detail="missing bearer token")
+
+    app.dependency_overrides[get_auth_context] = _missing_auth_context
+    client = TestClient(app)
 
     resp = client.get(
         "/video/render/jobs",

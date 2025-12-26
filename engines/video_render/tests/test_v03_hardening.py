@@ -1,6 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-import sys
+import engines.video_render.ffmpeg_runner as ffmpeg_runner
 from engines.video_render.models import RenderPlan, PlanStep
 from engines.video_render.ffmpeg_runner import run_ffmpeg, FFmpegError
 
@@ -12,8 +14,8 @@ class TestV03Hardening(unittest.TestCase):
  V..... h264_videotoolbox    VideoToolbox H.264 Encoder
  V..... h264_nvenc           NVIDIA NVENC H.264
             """
-            from engines.video_render.ffmpeg_runner import get_available_hardware_encoders
-            encoders = get_available_hardware_encoders()
+            ffmpeg_runner._HW_ENCODERS_CACHE = None
+            encoders = ffmpeg_runner.get_available_hardware_encoders()
             self.assertIn("h264_videotoolbox", encoders)
             self.assertIn("h264_nvenc", encoders)
             self.assertNotIn("hevc_videotoolbox", encoders)
@@ -63,21 +65,39 @@ class TestV03Hardening(unittest.TestCase):
         
         # No proxy artifacts
         mock_media.list_artifacts_for_asset.return_value = []
+        asset_path = Path(tempfile.mkdtemp()) / "asset.mp4"
+        asset_path.write_bytes(b"video")
+        mock_asset = MagicMock()
+        mock_asset.id = "a1"
+        mock_asset.tenant_id = "t_test"
+        mock_asset.env = "dev"
+        mock_asset.source_uri = str(asset_path)
+        mock_asset.meta = {}
+        mock_media.get_asset.return_value = mock_asset
         
         service = RenderService(job_repo=MagicMock())
         service.timeline_service = mock_timeline
         service.media_service = mock_media
-        
-        count = service.ensure_proxies_for_project("p1")
-        self.assertEqual(count, 1) # Should detect 1 missing proxy
 
-        # Now mock proxy existing
-        mock_art = MagicMock()
-        mock_art.kind = "video_proxy_360p"
-        mock_media.list_artifacts_for_asset.return_value = [mock_art]
-        
-        count = service.ensure_proxies_for_project("p1")
-        self.assertEqual(count, 0) # Should be 0
+        import engines.video_render.service as video_render_service
+        original_ladder = video_render_service.PROXY_LADDER
+        video_render_service.PROXY_LADDER = original_ladder[:1]
+        try:
+            count = service.ensure_proxies_for_project("p1")
+            self.assertEqual(count, 1)  # Should detect 1 missing proxy
+
+            # Now mock proxy existing
+            mock_art = MagicMock()
+            mock_art.kind = "video_proxy_360p"
+            mock_art.meta = {
+                "proxy_cache_key": f"{mock_asset.id}:video_proxy_360p:{mock_asset.source_uri}"
+            }
+            mock_media.list_artifacts_for_asset.return_value = [mock_art]
+
+            count = service.ensure_proxies_for_project("p1")
+            self.assertEqual(count, 0)  # Should be 0
+        finally:
+            video_render_service.PROXY_LADDER = original_ladder
 
     def test_hardware_encoder_resolution(self):
         from engines.video_render.service import RenderService
