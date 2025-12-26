@@ -25,7 +25,7 @@
 •	        project_id=request_context.project_id,
 •	    )
 •	    # existing business logic unchanged
-•	
+•
 •	Placement:
 •	require_tenant_membership(…) near the top, before any work or data access.
 •	assert_context_matches(…) immediately after, only if the request includes tenant/env/project fields (body/query/path). If no such fields, skip or pass None for those args.
@@ -35,7 +35,7 @@
 •	Routes bypassing dependencies:
 •	Add request_context: RequestContext = Depends(get_request_context) and auth_context: AuthContext = Depends(get_auth_context) to the signature; then add require_tenant_membership and assert_context_matches as above.
 •	If truly public, add # INTENTIONALLY_PUBLIC:  and a test proving safe/public behavior.
-	3.	Router inventory (mounted in create_app) For each: path, rough endpoints, status, tests.
+	3.	Router inventory (mounted in create_app) For each: path, rough endpoints, status, tests.
 •	ws/sse transports (ws_transport.py, sse_transport.py): RED – streaming; ensure context/auth/membership checks; tests: test_sse_transport.py, test_sse_transport.py.
 •	media (routes.py): YELLOW/RED – verify; tests likely under engines/media/tests (check existing).
 •	media_v2 (routes.py): GREEN (already updated) – tests: test_media_v2_endpoints.py.
