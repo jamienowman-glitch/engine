@@ -4,6 +4,76 @@ from typing import Any, Optional
 from engines.routing.registry import routing_registry, MissingRoutingConfig
 
 
+# Required resource kinds for Phase 0 mounted services
+REQUIRED_RESOURCE_KINDS = [
+    "feature_flags",
+    "strategy_lock",
+    "kpi",
+    "budget",
+    "maybes",
+    "memory",
+    "analytics_events",
+    "rate_limit",
+    "firearms",
+    "page_content",
+    "seo",
+    "realtime_registry",
+    "chat_bus",
+    "nexus_backend",
+    "media_v2_storage",
+    "raw_storage",
+    "timeline",
+]
+
+# Backend types that are NOT allowed in production (fail-fast enforcement)
+DISALLOWED_BACKENDS = {"memory", "noop", "local", "tmp", "localhost"}
+
+
+def startup_validation_check() -> None:
+    """Validate all required resource kinds are configured at startup.
+    
+    This ensures that the application cannot start without properly configured
+    routing entries for all mounted services. Fail-fast enforcement prevents
+    silent fallbacks to memory/noop/localhost backends in production.
+    
+    Raises:
+        MissingRoutingConfig: If any required resource kind is missing or misconfigured
+    """
+    registry = routing_registry()
+    
+    # Check system tenant with default env for startup validation
+    # In real deployments, create_app will call this during startup
+    for resource_kind in REQUIRED_RESOURCE_KINDS:
+        try:
+            route = registry.get_route(
+                resource_kind,
+                tenant_id="t_system",
+                env="dev",  # Startup checks dev env as baseline
+                project_id=None
+            )
+            
+            if not route:
+                raise MissingRoutingConfig(
+                    f"Startup validation failed: {resource_kind} not configured in routing registry"
+                )
+            
+            # Reject disallowed backends
+            if route.backend_type and route.backend_type.lower() in DISALLOWED_BACKENDS:
+                raise ValueError(
+                    f"Startup validation failed: {resource_kind} configured with disallowed backend "
+                    f"'{route.backend_type}'. Allowed: firestore, redis, s3. "
+                    f"Update registry before starting application."
+                )
+        except MissingRoutingConfig:
+            raise
+        except Exception as e:
+            if "Startup validation failed" in str(e):
+                raise
+            raise MissingRoutingConfig(
+                f"Startup validation error for {resource_kind}: {str(e)}"
+            ) from e
+
+
 def get_route_config(
     resource_kind: str,
     tenant_id: str,

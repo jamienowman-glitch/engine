@@ -50,6 +50,8 @@ from engines.memory.routes import router as memory_router
 from engines.kill_switch.routes import router as kill_switch_router
 from engines.origin_snippets.routes import router as origin_snippets_router
 
+from engines.routing.manager import startup_validation_check
+
 
 def create_app() -> FastAPI:
     app = http_app
@@ -66,6 +68,10 @@ def create_app() -> FastAPI:
         app.state.northstar_cors_added = True
     
     if not getattr(app.state, "northstar_routes_added", False):
+        # P0 Phase 0 Closeout: Validate routing configuration before mounting services
+        # This ensures fail-fast behavior if required services are not properly configured
+        startup_validation_check()
+        
         app.include_router(ws_router)
         app.include_router(sse_router)
         app.include_router(media_router)
