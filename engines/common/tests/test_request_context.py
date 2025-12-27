@@ -50,3 +50,25 @@ def test_project_body_fallback() -> None:
     )
     assert response.status_code == 200
     assert response.json()["project_id"] == "project-body"
+
+
+def test_project_required() -> None:
+    """Gate 5: Validate that project_id is mandatory for all requests."""
+    # Test 1: Missing project_id must error 400
+    headers_no_project = {
+        "X-Tenant-Id": "t_test",
+        "X-Env": "dev",
+    }
+    response = client.get("/context", headers=headers_no_project)
+    assert response.status_code == 400
+    assert "project_id" in response.json()["detail"]
+
+    # Test 2: Valid project_id must succeed
+    headers_with_project = {
+        "X-Tenant-Id": "t_test",
+        "X-Env": "dev",
+        "X-Project-Id": "p_valid",
+    }
+    response = client.get("/context", headers=headers_with_project)
+    assert response.status_code == 200
+    assert response.json()["project_id"] == "p_valid"
