@@ -5,8 +5,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends
 
+from engines.common.identity import RequestContext, get_request_context
+from engines.identity.auth import AuthContext, get_auth_context, require_tenant_membership
 from engines.config import runtime_config
 from engines.dataset.events.schemas import DatasetEvent
 from engines.logging.events.engine import run as log_event
@@ -17,17 +19,16 @@ from engines.storage.gcs_client import GcsClient
 router = APIRouter()
 
 
-def _tenant(tenant_id: Optional[str]) -> str:
-    return tenant_id or runtime_config.get_tenant_id() or "t_unknown"
-
-
 @router.post("/media/upload")
 async def upload_media(
     file: UploadFile = File(...),
     tenant_id: str = Form(None),
     tags: Optional[str] = Form(None),
+    request_context: RequestContext = Depends(get_request_context),
+    auth_context: AuthContext = Depends(get_auth_context),
 ):
-    tenant = _tenant(tenant_id)
+    require_tenant_membership(auth_context, request_context.tenant_id)
+    tenant = request_context.tenant_id
     tag_list = [t for t in (tags.split(",") if tags else []) if t]
 
     try:
@@ -46,7 +47,7 @@ async def upload_media(
 
     event = DatasetEvent(
         tenantId=tenant,
-        env=runtime_config.get_env() or "dev",
+        env=request_context.env or "dev",
         surface="media",
         agentId="media-upload",
         input={"filename": file.filename, "tags": tag_list},
@@ -60,8 +61,14 @@ async def upload_media(
 
 
 @router.get("/media/stack")
-def list_media(tenant_id: str | None = None, limit: int = 20):
-    tenant = _tenant(tenant_id)
+def list_media(
+    tenant_id: str | None = None,
+    limit: int = 20,
+    request_context: RequestContext = Depends(get_request_context),
+    auth_context: AuthContext = Depends(get_auth_context),
+):
+    require_tenant_membership(auth_context, request_context.tenant_id)
+    tenant = request_context.tenant_id
     backend = get_backend()
     # For now, retrieve by tags; in future use dedicated media collection.
     docs = backend.query_by_tags(NexusKind.data, tags=["media"], limit=limit)

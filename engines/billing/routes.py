@@ -27,6 +27,8 @@ def create_checkout_session(
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
+    # INTENTIONALLY_PUBLIC: Stripe webhook signature validation provides protection
+    # (Stripe sends HMAC-SHA256 signature in Stripe-Signature header; we verify against webhook secret)
     signature = request.headers.get("Stripe-Signature")
     if not signature:
         raise HTTPException(status_code=400, detail="missing_signature")
