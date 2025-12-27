@@ -40,13 +40,37 @@ def signup(payload: SignupRequest):
             TenantMembership(tenant_id=tenant.id, user_id=user.id, role="owner")
         )
         
-        # Phase 0 Closeout: Create default project record in control-plane
+        # Phase 0 Closeout: Create default surface, app, and project
+        from engines.identity.models import Surface, App
+        
+        # Create default surface
+        default_surface = Surface(
+            tenant_id=tenant.id,
+            name="default",
+            description="Default surface created on tenant signup",
+            created_by=user.id,
+        )
+        identity_repo.create_surface(default_surface)
+        
+        # Create default app
+        default_app = App(
+            tenant_id=tenant.id,
+            name="default",
+            app_type="web",
+            description="Default app created on tenant signup",
+            created_by=user.id,
+        )
+        identity_repo.create_app(default_app)
+        
+        # Create default project record in control-plane
         default_project = ControlPlaneProject(
             tenant_id=tenant.id,
             env="dev",
             project_id="default",
             name="Default Project",
             description="Default project created on tenant signup",
+            default_surface_id=default_surface.id,
+            default_app_id=default_app.id,
             created_by=user.id,
         )
         identity_repo.create_project(default_project)
@@ -112,6 +136,9 @@ def bootstrap_tenants(x_system_key: str = Header(..., alias="X-System-Key")):
 
     # Seed control-plane modes (owned by t_system)
     _seed_tenant_modes()
+    
+    # Seed default surface/app for t_system if not present
+    _seed_system_defaults(t0_id)
 
     return {"status": "ok", "created": created}
 
@@ -127,6 +154,32 @@ def _seed_tenant_modes():
         if not identity_repo.get_tenant_mode_by_name(mode_name):
             mode = TenantMode(name=mode_name, description=description)
             identity_repo.create_tenant_mode(mode)
+
+
+def _seed_system_defaults(tenant_id: str) -> None:
+    """Idempotent seeding of default surface/app for t_system."""
+    from engines.identity.models import Surface, App
+    
+    # Check if default surface already exists
+    surfaces = identity_repo.list_surfaces_for_tenant(tenant_id)
+    if not surfaces:
+        default_surface = Surface(
+            tenant_id=tenant_id,
+            name="default",
+            description="System default surface",
+        )
+        identity_repo.create_surface(default_surface)
+    
+    # Check if default app already exists
+    apps = identity_repo.list_apps_for_tenant(tenant_id)
+    if not apps:
+        default_app = App(
+            tenant_id=tenant_id,
+            name="default",
+            app_type="backend",
+            description="System default app",
+        )
+        identity_repo.create_app(default_app)
 
 
 
