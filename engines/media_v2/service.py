@@ -53,12 +53,19 @@ class MediaStorage(Protocol):
 
 
 class S3MediaStorage:
-    """S3-backed media storage with strict tenant/env prefixing."""
+    """S3-backed media storage with strict tenant/env prefixing.
+    
+    GAP-G1: Block LocalMediaStorage fallback. Enforce S3 configuration.
+    Raises at init if RAW_BUCKET not configured (fail-fast).
+    """
 
     def __init__(self, bucket_name: Optional[str] = None, client: Optional[object] = None) -> None:
         self.bucket_name = bucket_name or runtime_config.get_raw_bucket()
         if not self.bucket_name:
-            raise RuntimeError("RAW_BUCKET config missing for media storage")
+            raise RuntimeError(
+                "RAW_BUCKET config missing for media storage. "
+                "Set RAW_BUCKET env var to S3 bucket name to enable media uploads."
+            )
         if client is not None:
             self.client = client
         else:

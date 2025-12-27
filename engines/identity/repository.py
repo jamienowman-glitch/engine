@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Protocol
 
-from engines.identity.models import Tenant, TenantAnalyticsConfig, TenantKeyConfig, TenantMembership, User, TenantMode
+from engines.identity.models import Tenant, TenantAnalyticsConfig, TenantKeyConfig, TenantMembership, User, TenantMode, Surface, App, ControlPlaneProject
 
 
 class IdentityRepository(Protocol):
@@ -36,6 +36,22 @@ class IdentityRepository(Protocol):
     def get_tenant_mode(self, mode_id: str) -> Optional[TenantMode]: ...
     def get_tenant_mode_by_name(self, name: str) -> Optional[TenantMode]: ...
     def list_tenant_modes(self) -> list[TenantMode]: ...
+    
+    # Control-plane primitives (Phase 0 closeout)
+    def create_surface(self, surface: Surface) -> Surface: ...
+    def get_surface(self, surface_id: str) -> Optional[Surface]: ...
+    def list_surfaces_for_tenant(self, tenant_id: str) -> list[Surface]: ...
+    def update_surface(self, surface_id: str, **kwargs) -> Optional[Surface]: ...
+    
+    def create_app(self, app: App) -> App: ...
+    def get_app(self, app_id: str) -> Optional[App]: ...
+    def list_apps_for_tenant(self, tenant_id: str) -> list[App]: ...
+    def update_app(self, app_id: str, **kwargs) -> Optional[App]: ...
+    
+    def create_project(self, project: ControlPlaneProject) -> ControlPlaneProject: ...
+    def get_project(self, tenant_id: str, env: str, project_id: str) -> Optional[ControlPlaneProject]: ...
+    def list_projects_for_tenant(self, tenant_id: str, env: Optional[str] = None) -> list[ControlPlaneProject]: ...
+    def update_project(self, tenant_id: str, env: str, project_id: str, **kwargs) -> Optional[ControlPlaneProject]: ...
 
 
 class InMemoryIdentityRepository:
@@ -48,6 +64,9 @@ class InMemoryIdentityRepository:
         self._keys: Dict[tuple[str, str, str], TenantKeyConfig] = {}
         self._analytics: Dict[tuple[str, str, str], TenantAnalyticsConfig] = {}
         self._tenant_modes: Dict[str, TenantMode] = {}
+        self._surfaces: Dict[str, Surface] = {}
+        self._apps: Dict[str, App] = {}
+        self._projects: Dict[tuple[str, str, str], ControlPlaneProject] = {}  # (tenant_id, env, project_id)
 
 
     # Users
@@ -151,6 +170,69 @@ class InMemoryIdentityRepository:
 
     def list_tenant_modes(self) -> list[TenantMode]:
         return list(self._tenant_modes.values())
+    
+    # Control-plane primitives (Phase 0 closeout)
+    def create_surface(self, surface: Surface) -> Surface:
+        self._surfaces[surface.id] = surface
+        return surface
+
+    def get_surface(self, surface_id: str) -> Optional[Surface]:
+        return self._surfaces.get(surface_id)
+
+    def list_surfaces_for_tenant(self, tenant_id: str) -> list[Surface]:
+        return [s for s in self._surfaces.values() if s.tenant_id == tenant_id]
+
+    def update_surface(self, surface_id: str, **kwargs) -> Optional[Surface]:
+        surface = self._surfaces.get(surface_id)
+        if not surface:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(surface, key):
+                setattr(surface, key, value)
+        return surface
+    
+    def create_app(self, app: App) -> App:
+        self._apps[app.id] = app
+        return app
+
+    def get_app(self, app_id: str) -> Optional[App]:
+        return self._apps.get(app_id)
+
+    def list_apps_for_tenant(self, tenant_id: str) -> list[App]:
+        return [a for a in self._apps.values() if a.tenant_id == tenant_id]
+
+    def update_app(self, app_id: str, **kwargs) -> Optional[App]:
+        app = self._apps.get(app_id)
+        if not app:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(app, key):
+                setattr(app, key, value)
+        return app
+    
+    def create_project(self, project: ControlPlaneProject) -> ControlPlaneProject:
+        key = (project.tenant_id, project.env, project.project_id)
+        self._projects[key] = project
+        return project
+
+    def get_project(self, tenant_id: str, env: str, project_id: str) -> Optional[ControlPlaneProject]:
+        return self._projects.get((tenant_id, env, project_id))
+
+    def list_projects_for_tenant(self, tenant_id: str, env: Optional[str] = None) -> list[ControlPlaneProject]:
+        projects = [p for p in self._projects.values() if p.tenant_id == tenant_id]
+        if env:
+            projects = [p for p in projects if p.env == env]
+        return projects
+
+    def update_project(self, tenant_id: str, env: str, project_id: str, **kwargs) -> Optional[ControlPlaneProject]:
+        key = (tenant_id, env, project_id)
+        project = self._projects.get(key)
+        if not project:
+            return None
+        for key_name, value in kwargs.items():
+            if hasattr(project, key_name):
+                setattr(project, key_name, value)
+        return project
 
 
 class FirestoreIdentityRepository:
@@ -183,6 +265,9 @@ class FirestoreIdentityRepository:
         self._col_keys = "key_configs"
         self._col_analytics = "analytics_configs"
         self._col_tenant_modes = "tenant_modes"
+        self._col_surfaces = "control_plane_surfaces"
+        self._col_apps = "control_plane_apps"
+        self._col_projects = "control_plane_projects"
 
 
     def _col(self, name: str):
@@ -329,3 +414,73 @@ class FirestoreIdentityRepository:
     def list_tenant_modes(self) -> list[TenantMode]:
         docs = self._col(self._col_tenant_modes).stream()
         return [TenantMode(**d.to_dict()) for d in docs]
+    
+    # Control-plane primitives (Phase 0 closeout)
+    def create_surface(self, surface: Surface) -> Surface:
+        self._col(self._col_surfaces).document(surface.id).set(surface.model_dump())
+        return surface
+
+    def get_surface(self, surface_id: str) -> Optional[Surface]:
+        snap = self._col(self._col_surfaces).document(surface_id).get()
+        return Surface(**snap.to_dict()) if snap and snap.exists else None
+
+    def list_surfaces_for_tenant(self, tenant_id: str) -> list[Surface]:
+        docs = self._col(self._col_surfaces).where("tenant_id", "==", tenant_id).stream()
+        return [Surface(**d.to_dict()) for d in docs]
+
+    def update_surface(self, surface_id: str, **kwargs) -> Optional[Surface]:
+        snap = self._col(self._col_surfaces).document(surface_id).get()
+        if not snap or not snap.exists:
+            return None
+        data = snap.to_dict()
+        data.update(kwargs)
+        self._col(self._col_surfaces).document(surface_id).set(data)
+        return Surface(**data)
+    
+    def create_app(self, app: App) -> App:
+        self._col(self._col_apps).document(app.id).set(app.model_dump())
+        return app
+
+    def get_app(self, app_id: str) -> Optional[App]:
+        snap = self._col(self._col_apps).document(app_id).get()
+        return App(**snap.to_dict()) if snap and snap.exists else None
+
+    def list_apps_for_tenant(self, tenant_id: str) -> list[App]:
+        docs = self._col(self._col_apps).where("tenant_id", "==", tenant_id).stream()
+        return [App(**d.to_dict()) for d in docs]
+
+    def update_app(self, app_id: str, **kwargs) -> Optional[App]:
+        snap = self._col(self._col_apps).document(app_id).get()
+        if not snap or not snap.exists:
+            return None
+        data = snap.to_dict()
+        data.update(kwargs)
+        self._col(self._col_apps).document(app_id).set(data)
+        return App(**data)
+    
+    def create_project(self, project: ControlPlaneProject) -> ControlPlaneProject:
+        doc_id = f"{project.tenant_id}_{project.env}_{project.project_id}"
+        self._col(self._col_projects).document(doc_id).set(project.model_dump())
+        return project
+
+    def get_project(self, tenant_id: str, env: str, project_id: str) -> Optional[ControlPlaneProject]:
+        doc_id = f"{tenant_id}_{env}_{project_id}"
+        snap = self._col(self._col_projects).document(doc_id).get()
+        return ControlPlaneProject(**snap.to_dict()) if snap and snap.exists else None
+
+    def list_projects_for_tenant(self, tenant_id: str, env: Optional[str] = None) -> list[ControlPlaneProject]:
+        query = self._col(self._col_projects).where("tenant_id", "==", tenant_id)
+        if env:
+            query = query.where("env", "==", env)
+        docs = query.stream()
+        return [ControlPlaneProject(**d.to_dict()) for d in docs]
+
+    def update_project(self, tenant_id: str, env: str, project_id: str, **kwargs) -> Optional[ControlPlaneProject]:
+        doc_id = f"{tenant_id}_{env}_{project_id}"
+        snap = self._col(self._col_projects).document(doc_id).get()
+        if not snap or not snap.exists:
+            return None
+        data = snap.to_dict()
+        data.update(kwargs)
+        self._col(self._col_projects).document(doc_id).set(data)
+        return ControlPlaneProject(**data)

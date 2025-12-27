@@ -33,17 +33,23 @@ class RawStorageRepository(Protocol):
 
 
 class S3RawStorageRepository:
-    """S3-backed storage repository."""
+    """S3-backed storage repository.
+    
+    GAP-G3: Enforce RAW_BUCKET at startup (fail-fast).
+    - No deferred checks; bucket must exist in config at init time
+    - Prevents runtime errors on first upload
+    """
 
     def __init__(self, bucket_name: str | None = None):
         self.bucket_name = bucket_name or runtime_config.get_raw_bucket()
         if not self.bucket_name:
-            # We defer raising until usage to allow app startup in local without config if unused
-            pass
+            raise ValueError(
+                "RAW_BUCKET config missing. "
+                "Set RAW_BUCKET env var to S3 bucket name for raw storage."
+            )
 
     def _get_bucket(self) -> str:
-        if not self.bucket_name:
-            raise HTTPException(status_code=500, detail="RAW_BUCKET config missing")
+        # Bucket guaranteed to exist at init time (GAP-G3 fail-fast)
         return self.bucket_name
 
     def _get_key(self, tenant_id: str, env: str, asset_id: str, filename: str) -> str:

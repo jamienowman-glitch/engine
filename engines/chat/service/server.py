@@ -24,6 +24,7 @@ from engines.nexus.memory.routes import router as nexus_memory_router
 from engines.identity.routes_keys import router as keys_router
 from engines.identity.routes_auth import router as auth_router
 from engines.identity.routes_analytics import router as analytics_router
+from engines.identity.routes_control_plane import router as control_plane_router
 from engines.strategy_lock.routes import router as strategy_lock_router
 from engines.temperature.routes import router as temperature_router
 from engines.video_timeline.routes import router as video_timeline_router
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
         app.include_router(auth_router)
         app.include_router(keys_router)
         app.include_router(analytics_router)
+        app.include_router(control_plane_router)
         app.include_router(strategy_lock_router)
         app.include_router(temperature_router)
         app.include_router(vector_explorer_router)

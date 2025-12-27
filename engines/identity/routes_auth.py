@@ -9,7 +9,7 @@ from engines.identity.auth_schemas import AuthTokenResponse, LoginRequest, Signu
 from engines.identity.jwt_service import default_jwt_service
 from engines.identity.auth import get_auth_context
 from engines.identity.passwords import hash_password, verify_password
-from engines.identity.models import Tenant, TenantMembership, User, TenantKeyConfig, TenantMode
+from engines.identity.models import Tenant, TenantMembership, User, TenantKeyConfig, TenantMode, ControlPlaneProject
 from engines.identity.state import identity_repo, set_identity_repo
 from uuid import uuid4
 
@@ -39,6 +39,18 @@ def signup(payload: SignupRequest):
         identity_repo.create_membership(
             TenantMembership(tenant_id=tenant.id, user_id=user.id, role="owner")
         )
+        
+        # Phase 0 Closeout: Create default project record in control-plane
+        default_project = ControlPlaneProject(
+            tenant_id=tenant.id,
+            env="dev",
+            project_id="default",
+            name="Default Project",
+            description="Default project created on tenant signup",
+            created_by=user.id,
+        )
+        identity_repo.create_project(default_project)
+    
     memberships = identity_repo.list_memberships_for_user(user.id)
     token = _issue_for_user(user, memberships)
     return _token_response(user, memberships, tenant)

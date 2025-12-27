@@ -435,13 +435,13 @@ class FirestoreTimelineRepository(TimelineRepository):
 
 class TimelineService:
     def __init__(self, repo: Optional[TimelineRepository] = None) -> None:
+        # GAP-G1: No fallback to InMemory. Repo must be durable or None (will error on use).
+        # Phase 0 closeout enforces fail-fast via routing registry startup validation.
         self.repo = repo or self._default_repo()
 
     def _default_repo(self) -> TimelineRepository:
-        try:
-            return FirestoreTimelineRepository()
-        except Exception:
-            return InMemoryTimelineRepository()
+        # Must use Firestore; no fallback to InMemory
+        return FirestoreTimelineRepository()
 
     # Project
     def create_project(self, project: VideoProject) -> VideoProject:

@@ -53,43 +53,38 @@ class FirestoreFeatureFlagRepository:
 
 class FeatureFlagRepository:
     def __init__(self, backend: Optional[str] = None, firestore_client: Optional[Any] = None):
-        self._store: Dict[Tuple[str, str], FeatureFlags] = {}
+        # GAP-G1: No memory fallback. Must use Firestore in production.
         self._firestore_repo: Optional[FirestoreFeatureFlagRepository] = None
-        self._backend = (backend or os.getenv(FEATURE_FLAGS_BACKEND_ENV, "memory")).lower()
+        self._backend = (backend or os.getenv(FEATURE_FLAGS_BACKEND_ENV, "")).lower()
 
-        if self._backend == "firestore":
+        if self._backend == "firestore" or not self._backend:
+            # Default and only allowed in production: firestore
             try:
                 self._firestore_repo = FirestoreFeatureFlagRepository(client=firestore_client)
-            except Exception:
-                self._firestore_repo = None
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to initialize Firestore feature flags backend: {e}. "
+                    f"Set FEATURE_FLAGS_BACKEND=firestore and ensure GCP credentials are available."
+                ) from e
+        else:
+            raise RuntimeError(
+                f"Unsupported FEATURE_FLAGS_BACKEND={self._backend}. "
+                f"Only 'firestore' is allowed in production."
+            )
 
     def get_flags(self, tenant_id: str, env: str) -> Optional[FeatureFlags]:
-        if self._firestore_repo:
-            try:
-                flags = self._firestore_repo.get_flags(tenant_id, env)
-            except Exception:
-                flags = None
-            if flags:
-                return flags
-        return self._store.get((tenant_id, env))
+        # All reads go through Firestore (no in-memory fallback)
+        return self._firestore_repo.get_flags(tenant_id, env) if self._firestore_repo else None
 
     def set_flags(self, flags: FeatureFlags) -> FeatureFlags:
+        # All writes go through Firestore
         if self._firestore_repo:
-            try:
-                self._firestore_repo.set_flags(flags)
-            except Exception:
-                pass
-        self._store[(flags.tenant_id, flags.env)] = flags
+            self._firestore_repo.set_flags(flags)
         return flags
 
     def delete_flags(self, tenant_id: str, env: str) -> None:
-        key = (tenant_id, env)
-        self._store.pop(key, None)
         if self._firestore_repo:
-            try:
-                self._firestore_repo.delete_flags(tenant_id, env)
-            except Exception:
-                pass
+            self._firestore_repo.delete_flags(tenant_id, env)
 
     def get_global_flags(self, env: str) -> Optional[FeatureFlags]:
         return self.get_flags(GLOBAL_TENANT_ID, env)

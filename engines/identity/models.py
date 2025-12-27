@@ -91,3 +91,62 @@ class TenantMode(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+
+
+class Surface(BaseModel):
+    """Control-plane record for a Surface (content container/workspace).
+    
+    Surfaces are first-class control-plane primitives tied to a tenant.
+    They represent a named content space (e.g. "default", "staging").
+    """
+    id: str = Field(default_factory=lambda: f"s_{uuid4().hex}")
+    tenant_id: str  # Surfaces are tenant-scoped
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    status: Literal["active", "archived", "deleted"] = "active"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class App(BaseModel):
+    """Control-plane record for an App (application/deployment unit).
+    
+    Apps are first-class control-plane primitives tied to a tenant.
+    They represent a deployable application or service.
+    """
+    id: str = Field(default_factory=lambda: f"a_{uuid4().hex}")
+    tenant_id: str  # Apps are tenant-scoped
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    app_type: Literal["web", "mobile", "api", "backend"] = "web"
+    status: Literal["active", "archived", "deleted"] = "active"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class ControlPlaneProject(BaseModel):
+    """Control-plane record for a Project (canonical project registry).
+    
+    Projects are durable records keyed by (tenant_id, env, project_id).
+    This is separate from video_timeline's project domain; it's a canonical
+    "project exists" registry for cross-service routing and entitlements.
+    """
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    tenant_id: str
+    env: str
+    project_id: str  # The value used in X-Project-Id header
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Literal["active", "archived", "deleted"] = "active"
+    default_surface_id: Optional[str] = None
+    default_app_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
