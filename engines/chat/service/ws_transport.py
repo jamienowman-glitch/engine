@@ -83,6 +83,10 @@ def _build_routing_keys(
     return RoutingKeys(
         tenant_id=ctx.tenant_id,
         env=ctx.env,
+        mode=ctx.env,
+        project_id=ctx.project_id,
+        app_id=ctx.app_id,
+        surface_id=ctx.surface_id,
         thread_id=thread_id,
         actor_id=actor_id,
         actor_type=actor_type,
@@ -180,6 +184,11 @@ async def websocket_endpoint(
             type="resume_cursor",
             routing=_build_routing_keys(request_context, thread_id, user_id, ActorType.SYSTEM),
             data={"cursor": cursor},
+            ids=EventIds(
+                request_id=request_context.request_id,
+                run_id=thread_id,
+                step_id="resume_cursor",
+            ),
             trace_id=request_context.request_id,
             meta=EventMeta(
                 priority=EventPriority.INFO,
@@ -193,6 +202,11 @@ async def websocket_endpoint(
         type="presence_state",
         routing=_build_routing_keys(request_context, thread_id, user_id, ActorType.HUMAN),
         data={"status": "online", "user_id": user_id},
+        ids=EventIds(
+            request_id=request_context.request_id,
+            run_id=thread_id,
+            step_id="presence_online",
+        ),
         trace_id=request_context.request_id,
         meta=EventMeta(
             priority=EventPriority.INFO,
@@ -236,6 +250,11 @@ async def websocket_endpoint(
                         request_context, thread_id, user_id, ActorType.HUMAN
                     ),
                     data=data.get("data", {}),
+                    ids=EventIds(
+                        request_id=request_context.request_id,
+                        run_id=thread_id,
+                        step_id="gesture",
+                    ),
                     trace_id=request_context.request_id,
                     meta=EventMeta(
                         priority=EventPriority.GESTURE,
@@ -265,6 +284,11 @@ async def websocket_endpoint(
             type="presence_state",
             routing=_build_routing_keys(request_context, thread_id, user_id, ActorType.HUMAN),
             data={"status": "offline", "user_id": user_id},
+            ids=EventIds(
+                request_id=request_context.request_id,
+                run_id=thread_id,
+                step_id="presence_offline",
+            ),
             trace_id=request_context.request_id,
             meta=EventMeta(
                 priority=EventPriority.INFO,

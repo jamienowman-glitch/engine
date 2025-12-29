@@ -4,12 +4,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
+from engines.config import runtime_config
 from engines.common.identity import RequestContext
 from engines.dataset.events.schemas import DatasetEvent
-from engines.logging.events.engine import run as log_dataset_event
 from engines.logging.audit import emit_audit_event
+from engines.logging.events.contract import compliance_run_enabled
 from engines.budget.service import get_budget_service, BudgetService
 from engines.budget.models import UsageEvent
 from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
@@ -43,8 +44,40 @@ class VectorIngestService:
         self._vector_store = vector_store or VertexExplorerVectorStore()
         self._embedder = embedder or VertexEmbeddingAdapter()
         self._gcs = gcs_client or GcsClient()
-        self._event_logger = event_logger or (lambda e: None)
+        self._event_logger = event_logger or _noop_event_logger
+        if compliance_run_enabled() and self._event_logger == _noop_event_logger:
+            raise RuntimeError("vector ingest requires a real event logger under compliance runs")
         self._budget_service = budget_service or get_budget_service()
+
+    def _envelope_kwargs(
+        self,
+        tenant_id: str,
+        env: str,
+        context: RequestContext | None,
+        surface: str,
+        step_id: str,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        resolved_request_id = (
+            request_id
+            or (context.request_id if context and context.request_id else None)
+            or uuid.uuid4().hex
+        )
+        return {
+            "tenantId": tenant_id,
+            "env": env,
+            "mode": context.mode if context else env,
+            "project_id": context.project_id if context else runtime_config._default_project_id(),
+            "app_id": context.app_id if context else None,
+            "surface": surface,
+            "surface_id": context.surface_id if context and context.surface_id else surface,
+            "agentId": "vector_ingest",
+            "run_id": run_id or resolved_request_id,
+            "step_id": step_id,
+            "traceId": resolved_request_id,
+            "requestId": resolved_request_id,
+        }
 
     def ingest(
         self,
@@ -60,12 +93,15 @@ class VectorIngestService:
         filename: Optional[str],
         user_id: Optional[str] = None,
         source_ref: Optional[Dict[str, str]] = None,
+        context: RequestContext | None = None,
     ) -> IngestResult:
         tenant = tenant_id
         if not tenant or not env:
             raise IngestError("tenant_id and env are required")
         if content_type not in {"text", "image", "video", "pdf"}:
             raise IngestError("content_type must be one of text|image|video|pdf")
+
+        request_id = context.request_id if context else uuid.uuid4().hex
 
         asset_id = uuid.uuid4().hex
         gcs_uri = None
@@ -74,10 +110,14 @@ class VectorIngestService:
 
         self._log_event(
             DatasetEvent(
-                tenantId=tenant,
-                env=env,
-                surface="vector_ingest",
-                agentId="vector_ingest",
+                **self._envelope_kwargs(
+                    tenant,
+                    env,
+                    context,
+                    surface=space,
+                    step_id="vector_ingest.attempt",
+                    request_id=request_id,
+                ),
                 input={
                     "content_type": content_type,
                     "space": space,
@@ -101,6 +141,7 @@ class VectorIngestService:
             file_bytes=file_bytes,
             tenant_id=tenant,
             env=env,
+            context=context,
         )
         metadata = {
             "tenant_id": tenant,
@@ -122,11 +163,16 @@ class VectorIngestService:
             )
         except Exception as exc:
             raise IngestError(f"vector upsert failed: {exc}")
-        self._record_usage(
-            RequestContext(request_id="vector_ingest", tenant_id=tenant, env=env),
-            model_id=model_id,
-            tokens=est_tokens,
+        usage_context = context or RequestContext(
+            request_id=request_id,
+            tenant_id=tenant,
+            env=env,
+            project_id=context.project_id if context else runtime_config._default_project_id(),
+            surface_id=context.surface_id if context else space,
+            app_id=context.app_id if context else None,
+            user_id=user_id,
         )
+        self._record_usage(usage_context, model_id=model_id, tokens=est_tokens)
 
         # 3) Corpus record
         item = VectorExplorerItem(
@@ -143,10 +189,14 @@ class VectorIngestService:
         # 4) Log
         self._log_event(
             DatasetEvent(
-                tenantId=tenant,
-                env=env,
-                surface="vector_ingest",
-                agentId="vector_ingest",
+                **self._envelope_kwargs(
+                    tenant,
+                    env,
+                    context,
+                    surface=space,
+                    step_id="vector_ingest.success",
+                    request_id=request_id,
+                ),
                 input={
                     "content_type": content_type,
                     "space": space,
@@ -158,7 +208,7 @@ class VectorIngestService:
             )
         )
         emit_audit_event(
-            RequestContext(request_id="vector_ingest", tenant_id=tenant, env=env, user_id=user_id),
+            usage_context,
             action="vector_ingest:create",
             surface="vector_explorer",
             metadata={"asset_id": asset_id, "space": space},
@@ -172,8 +222,9 @@ class VectorIngestService:
         file_bytes: Optional[bytes],
         tenant_id: Optional[str],
         env: Optional[str],
+        context: RequestContext | None,
     ) -> tuple[Sequence[float], str, int]:
-        ctx = RequestContext(request_id="vector_ingest", tenant_id=tenant_id or "", env=env or "")
+        ctx = context or RequestContext(request_id="vector_ingest", tenant_id=tenant_id or "", env=env or "")
         try:
             if content_type == "image":
                 if file_bytes is None:
@@ -189,10 +240,14 @@ class VectorIngestService:
         except IngestError:
             self._log_event(
                 DatasetEvent(
-                    tenantId=tenant_id or "",
-                    env=env or "",
-                    surface="vector_ingest",
-                    agentId="vector_ingest",
+                    **self._envelope_kwargs(
+                        tenant_id or "",
+                        env or "",
+                        ctx,
+                        surface="vector_ingest",
+                        step_id="vector_ingest.fail",
+                        request_id=ctx.request_id,
+                    ),
                     input={"content_type": content_type},
                     output={},
                     metadata={"kind": "vector_ingest.fail"},
@@ -246,3 +301,7 @@ class VectorIngestService:
             )
         except Exception:
             return
+
+
+def _noop_event_logger(event: DatasetEvent) -> None:
+    return None

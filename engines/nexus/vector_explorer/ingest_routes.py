@@ -60,6 +60,7 @@ async def ingest_vector_item(
             filename=file.filename if file else None,
             user_id=context.user_id,
             source_ref=source_ref_dict,
+            context=context,
         )
     except IngestError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

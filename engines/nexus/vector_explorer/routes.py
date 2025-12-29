@@ -53,7 +53,7 @@ def get_vector_scene(
     )
     try:
         service = _get_service()
-        scene = service.build_scene_from_query(q)
+        scene = service.build_scene_from_query(q, context=context)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except (VectorStoreConfigError, RuntimeError) as exc:

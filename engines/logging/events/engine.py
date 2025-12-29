@@ -29,7 +29,7 @@ def run(event: DatasetEvent) -> dict:
     pref_service = get_training_pref_service()
     event.train_ok = pref_service.train_ok(
         tenant_id=event.tenantId,
-        env=event.env,
+        env=event.mode or event.env,
         user_id=event.agentId,
         default_ok=pii_result.policy.train_ok,
     )

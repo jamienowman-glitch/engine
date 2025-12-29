@@ -17,17 +17,21 @@ from engines.common.identity import RequestContext
 PROD_ENVS = {"prod", "staging"}
 
 
-def _resolve_identity(context: RequestContext | None) -> tuple[str, str, str]:
+def _resolve_identity(context: RequestContext | None) -> tuple[str, str, str, str, str, str, Optional[str]]:
     env_value = context.env if context else runtime_config.get_env() or "dev"
     env_normalized = env_value.lower()
-    env = "staging" if env_normalized == "stage" else env_normalized
+    normalized_env = "staging" if env_normalized == "stage" else env_normalized
     tenant_id = context.tenant_id if context else runtime_config.get_tenant_id()
     if not tenant_id:
-        if env in PROD_ENVS:
+        if normalized_env in PROD_ENVS:
             raise RuntimeError("tenant_id required for chat events in prod")
         tenant_id = "t_unknown"
     request_id = context.request_id if context else uuid.uuid4().hex
-    return tenant_id, env, request_id
+    project_id = context.project_id if context else runtime_config._default_project_id()
+    app_id = context.app_id if context else None
+    surface_id = context.surface_id if context else None
+    mode = normalized_env
+    return tenant_id, normalized_env, mode, request_id, project_id, app_id, surface_id
 
 
 async def process_message(
@@ -39,7 +43,15 @@ async def process_message(
     context: RequestContext | None = None,
 ) -> List[Message]:
     """Persist the incoming message, log it, and emit an LLM-backed agent response."""
-    tenant_id, env, request_id = _resolve_identity(context)
+    (
+        tenant_id,
+        env,
+        mode,
+        request_id,
+        project_id,
+        app_id,
+        context_surface_id,
+    ) = _resolve_identity(context)
     backend = get_backend()
 
     # Persist snippet to Nexus
@@ -53,16 +65,29 @@ async def process_message(
     )
 
     # Log event (PII strip inside logging engine)
+    surface_id = (
+        scope.surface
+        if scope and scope.surface
+        else context_surface_id
+        if context_surface_id
+        else "chat"
+    )
     event = DatasetEvent(
         tenantId=tenant_id,
         env=env,
+        mode=mode,
+        project_id=project_id,
+        app_id=app_id,
         surface="chat",
+        surface_id=surface_id,
         agentId=sender.id,
         input={"text": text, "scope": scope.dict(exclude_none=True) if scope else None},
         output={},
         metadata={"kind": "chat_message", "request_id": request_id},
         traceId=request_id,
         requestId=request_id,
+        run_id=thread_id,
+        step_id=request_id,
     )
     log_event(event)
 
