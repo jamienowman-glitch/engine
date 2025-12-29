@@ -45,9 +45,10 @@ class VectorExplorerService:
         self._repo = repository or FirestoreVectorCorpusRepository()
         self._vector_store = vector_store or VertexExplorerVectorStore()
         self._embedder = embedder or VertexEmbeddingAdapter()
-        self._event_logger = event_logger or _dataset_event_logger
-        if compliance_run_enabled() and self._event_logger == _dataset_event_logger:
-            raise RuntimeError("vector explorer requires a real event logger under compliance runs")
+        resolved_logger = event_logger or log_dataset_event
+        if compliance_run_enabled() and event_logger is None:
+            raise RuntimeError("vector explorer requires an explicit event logger under compliance runs")
+        self._event_logger = resolved_logger
         self._budget_service = budget_service or get_budget_service()
 
     def _envelope_kwargs(
@@ -207,13 +208,9 @@ class VectorExplorerService:
 
     def _log_event(self, event: DatasetEvent) -> None:
         if not self._event_logger:
-            return
-        try:
-            self._event_logger(event)
-        except Exception:
-            return
+            raise RuntimeError("vector explorer event logger is required")
+        self._event_logger(event)
 
 
 def _dataset_event_logger(event: DatasetEvent) -> None:
-    # Default to no-op for safety in environments without logging backend configured.
-    return None
+    log_dataset_event(event)

@@ -11,6 +11,7 @@ from engines.common.identity import RequestContext
 from engines.dataset.events.schemas import DatasetEvent
 from engines.logging.audit import emit_audit_event
 from engines.logging.events.contract import compliance_run_enabled
+from engines.logging.events.engine import run as log_dataset_event
 from engines.budget.service import get_budget_service, BudgetService
 from engines.budget.models import UsageEvent
 from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
@@ -44,9 +45,9 @@ class VectorIngestService:
         self._vector_store = vector_store or VertexExplorerVectorStore()
         self._embedder = embedder or VertexEmbeddingAdapter()
         self._gcs = gcs_client or GcsClient()
-        self._event_logger = event_logger or _noop_event_logger
-        if compliance_run_enabled() and self._event_logger == _noop_event_logger:
-            raise RuntimeError("vector ingest requires a real event logger under compliance runs")
+        self._event_logger = event_logger or log_dataset_event
+        if compliance_run_enabled() and event_logger is None:
+            self._event_logger = log_dataset_event
         self._budget_service = budget_service or get_budget_service()
 
     def _envelope_kwargs(
@@ -274,11 +275,8 @@ class VectorIngestService:
 
     def _log_event(self, event: DatasetEvent) -> None:
         if not self._event_logger:
-            return
-        try:
-            self._event_logger(event)
-        except Exception:
-            return
+            raise RuntimeError("vector ingest event logger is required")
+        self._event_logger(event)
 
     def _record_usage(self, context: RequestContext, model_id: str, tokens: int) -> None:
         try:
@@ -304,4 +302,4 @@ class VectorIngestService:
 
 
 def _noop_event_logger(event: DatasetEvent) -> None:
-    return None
+    log_dataset_event(event)

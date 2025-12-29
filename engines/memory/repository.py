@@ -103,9 +103,9 @@ class FirestoreMemoryRepository(InMemoryMemoryRepository):
 
 def memory_repo_from_env() -> MemoryRepository:
     backend = os.getenv("MEMORY_BACKEND", "").lower()
-    if backend == "firestore":
-        try:
-            return FirestoreMemoryRepository()
-        except Exception:
-            return InMemoryMemoryRepository()
-    return InMemoryMemoryRepository()
+    if backend != "firestore":
+        raise RuntimeError("MEMORY_BACKEND must be set to 'firestore' for session memory persistence")
+    try:
+        return FirestoreMemoryRepository()
+    except Exception as exc:
+        raise RuntimeError(f"MEMORY_BACKEND=firestore failed to initialize: {exc}") from exc

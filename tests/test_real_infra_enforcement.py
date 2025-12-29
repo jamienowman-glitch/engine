@@ -11,7 +11,8 @@ def clean_env():
     keys_to_remove = [
         "RAW_BUCKET", "IDENTITY_BACKEND", 
         "CHAT_BUS_BACKEND", "NEXUS_BACKEND",
-        "REDIS_HOST", "REDIS_PORT"
+        "REDIS_HOST", "REDIS_PORT",
+        "MEMORY_BACKEND", "BUDGET_BACKEND",
     ]
     old_environ = {}
     for k in keys_to_remove:
@@ -54,6 +55,30 @@ def test_chat_fails_fast(clean_env):
     
     with pytest.raises(RuntimeError, match="not allowed in Real Infra mode"):
         getattr(bus, "list_threads")
+
+def test_memory_service_fails_fast(clean_env):
+    """MemoryService should fail when MEMORY_BACKEND is not set to firestore."""
+    from engines.memory import service as memory_service
+    importlib.reload(memory_service)
+
+    with pytest.raises(RuntimeError, match="MEMORY_BACKEND must be set to 'firestore'"):
+        memory_service.MemoryService()
+
+def test_nexus_memory_service_fails_fast(clean_env):
+    """Nexus SessionMemoryService should fail without a durable backend."""
+    from engines.nexus.memory import service as nexus_memory_service
+    importlib.reload(nexus_memory_service)
+
+    with pytest.raises(RuntimeError, match="MEMORY_BACKEND must be set to 'firestore'"):
+        nexus_memory_service.SessionMemoryService()
+
+def test_budget_repo_fails_fast(clean_env):
+    """BudgetService should fail when BUDGET_BACKEND is not configured."""
+    from engines.budget import service as budget_service
+    importlib.reload(budget_service)
+
+    with pytest.raises(RuntimeError, match="BUDGET_BACKEND must be set to 'firestore'"):
+        budget_service.BudgetService()
 
 def test_nexus_fails_fast_on_memory(clean_env):
     """Nexus should fail if backend is explicitly memory."""

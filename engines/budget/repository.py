@@ -174,9 +174,9 @@ class FirestoreBudgetUsageRepository(InMemoryBudgetUsageRepository):
 
 def budget_repo_from_env() -> BudgetUsageRepository:
     backend = os.getenv("BUDGET_BACKEND", "").lower()
-    if backend == "firestore":
-        try:
-            return FirestoreBudgetUsageRepository()
-        except Exception:
-            return InMemoryBudgetUsageRepository()
-    return InMemoryBudgetUsageRepository()
+    if backend != "firestore":
+        raise RuntimeError("BUDGET_BACKEND must be set to 'firestore' for usage persistence")
+    try:
+        return FirestoreBudgetUsageRepository()
+    except Exception as exc:
+        raise RuntimeError(f"BUDGET_BACKEND=firestore failed to initialize: {exc}") from exc

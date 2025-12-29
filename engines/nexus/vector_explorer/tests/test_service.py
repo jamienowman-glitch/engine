@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from engines.nexus.embedding import EmbeddingResult, EmbeddingAdapter
+from engines.budget.repository import InMemoryBudgetUsageRepository
+from engines.budget.service import BudgetService
 from engines.nexus.vector_explorer.repository import InMemoryVectorCorpusRepository
 from engines.nexus.vector_explorer.schemas import QueryMode, VectorExplorerItem, VectorExplorerQuery
 from engines.nexus.vector_explorer.service import VectorExplorerService
@@ -45,6 +47,7 @@ def test_query_all_and_scene_builds():
         vector_store=FakeVectorStore(),
         embedder=FakeEmbedder(),
         event_logger=lambda e: events.append(e),
+        budget_service=BudgetService(repo=InMemoryBudgetUsageRepository()),
     )
     query = VectorExplorerQuery(tenant_id="t_demo", env="dev", space="demo", query_mode=QueryMode.all, limit=10)
     result = svc.query_items(query)
@@ -63,7 +66,13 @@ def test_similar_to_id_hydrates_scores():
     )
     store = FakeVectorStore()
     store.vectors = {"peer": [1.0, 0.0]}
-    svc = VectorExplorerService(repository=repo, vector_store=store, embedder=FakeEmbedder(), event_logger=lambda e: None)
+    svc = VectorExplorerService(
+        repository=repo,
+        vector_store=store,
+        embedder=FakeEmbedder(),
+        event_logger=lambda e: None,
+        budget_service=BudgetService(repo=InMemoryBudgetUsageRepository()),
+    )
     query = VectorExplorerQuery(
         tenant_id="t_demo", env="dev", space="demo", query_mode=QueryMode.similar_to_id, anchor_id="anchor"
     )
