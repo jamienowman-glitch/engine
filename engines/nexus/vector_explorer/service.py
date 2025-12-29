@@ -1,11 +1,14 @@
 """Vector Explorer service: query corpus/vector backend and return scenes."""
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
+from engines.config import runtime_config
 from engines.dataset.events.schemas import DatasetEvent
 from engines.logging.events.engine import run as log_dataset_event
+from engines.logging.events.contract import compliance_run_enabled
 from engines.budget.service import get_budget_service, BudgetService
 from engines.budget.models import UsageEvent
 from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
@@ -43,9 +46,36 @@ class VectorExplorerService:
         self._vector_store = vector_store or VertexExplorerVectorStore()
         self._embedder = embedder or VertexEmbeddingAdapter()
         self._event_logger = event_logger or _dataset_event_logger
+        if compliance_run_enabled() and self._event_logger == _dataset_event_logger:
+            raise RuntimeError("vector explorer requires a real event logger under compliance runs")
         self._budget_service = budget_service or get_budget_service()
 
-    def query_items(self, query: VectorExplorerQuery) -> VectorExplorerResult:
+    def _envelope_kwargs(
+        self,
+        query: VectorExplorerQuery,
+        context: RequestContext | None,
+        step_id: str,
+        run_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        request_id = query.trace_id or uuid.uuid4().hex
+        return {
+            "tenantId": query.tenant_id,
+            "env": query.env,
+            "mode": context.mode if context else query.env,
+            "project_id": context.project_id if context else runtime_config._default_project_id(),
+            "app_id": context.app_id if context else None,
+            "surface": "vector_explorer",
+            "surface_id": context.surface_id if context and context.surface_id else query.space or "vector_explorer",
+            "agentId": "vector_explorer",
+            "run_id": run_id or request_id,
+            "step_id": step_id,
+            "traceId": request_id,
+            "requestId": request_id,
+        }
+
+    def query_items(
+        self, query: VectorExplorerQuery, context: RequestContext | None = None
+    ) -> VectorExplorerResult:
         items: List[VectorExplorerItem]
         if query.query_mode == QueryMode.all:
             items = list(
@@ -61,20 +91,21 @@ class VectorExplorerService:
         elif query.query_mode == QueryMode.similar_to_id:
             if not query.anchor_id:
                 raise ValueError("anchor_id is required for similar_to_id")
-            items = self._hydrate_similar_by_id(query, query.anchor_id)
+            items = self._hydrate_similar_by_id(query, query.anchor_id, context)
         elif query.query_mode == QueryMode.similar_to_text:
             if not query.query_text:
                 raise ValueError("query_text is required for similar_to_text")
-            items = self._hydrate_similar_by_text(query, query.query_text)
+            items = self._hydrate_similar_by_text(query, query.query_text, context)
         else:  # pragma: no cover - Enum guards
             items = []
 
         self._log_event(
             DatasetEvent(
-                tenantId=query.tenant_id,
-                env=query.env,
-                surface="vector_explorer",
-                agentId="vector_explorer",
+                **self._envelope_kwargs(
+                    query,
+                    context,
+                    step_id=f"vector_explorer.{query.query_mode.value}",
+                ),
                 input={
                     "query_mode": query.query_mode.value,
                     "space": query.space,
@@ -88,15 +119,18 @@ class VectorExplorerService:
         )
         return VectorExplorerResult(items=items, tenant_id=query.tenant_id, env=query.env, trace_id=query.trace_id)
 
-    def build_scene_from_query(self, query: VectorExplorerQuery) -> Scene:
-        result = self.query_items(query)
+    def build_scene_from_query(
+        self, query: VectorExplorerQuery, context: RequestContext | None = None
+    ) -> Scene:
+        result = self.query_items(query, context)
         scene = build_scene(result.items)
         self._log_event(
             DatasetEvent(
-                tenantId=query.tenant_id,
-                env=query.env,
-                surface="vector_explorer",
-                agentId="vector_explorer",
+                **self._envelope_kwargs(
+                    query,
+                    context,
+                    step_id="vector_explorer.scene_composed",
+                ),
                 input={"trace_id": query.trace_id, "item_ids": [i.id for i in result.items]},
                 output={"scene_id": scene.sceneId, "node_count": len(scene.nodes)},
                 metadata={"kind": "vector_explorer.scene_composed"},
@@ -104,9 +138,14 @@ class VectorExplorerService:
         )
         return scene
 
-    def _hydrate_similar_by_text(self, query: VectorExplorerQuery, text: str) -> List[VectorExplorerItem]:
+    def _hydrate_similar_by_text(
+        self,
+        query: VectorExplorerQuery,
+        text: str,
+        context: RequestContext | None,
+    ) -> List[VectorExplorerItem]:
         try:
-            ctx = RequestContext(request_id="vector_explorer", tenant_id=query.tenant_id, env=query.env)
+            ctx = context or RequestContext(request_id="vector_explorer", tenant_id=query.tenant_id, env=query.env)
             embed = self._embedder.embed_text(text, context=ctx)
             hits = self._vector_store.query(
                 vector=embed.vector,
@@ -144,7 +183,9 @@ class VectorExplorerService:
             items.append(item)
         return items
 
-    def _hydrate_similar_by_id(self, query: VectorExplorerQuery, anchor_id: str) -> List[VectorExplorerItem]:
+    def _hydrate_similar_by_id(
+        self, query: VectorExplorerQuery, anchor_id: str, context: RequestContext | None
+    ) -> List[VectorExplorerItem]:
         try:
             hits = self._vector_store.query_by_datapoint_id(
                 anchor_id=anchor_id,

@@ -6,8 +6,14 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
+from engines.logging.events.contract import (
+    DEFAULT_STREAM_SCHEMA_VERSION,
+    EventSeverity,
+    StorageClass,
+    event_contract_enforced,
+)
 # --- Routing Keys ---
 
 class ActorType(str, Enum):
@@ -21,6 +27,7 @@ class RoutingKeys(BaseModel):
     Mandatory routing keys for all StreamEvent envelopes.
     """
     tenant_id: str = Field(..., pattern=r"^t_[a-z0-9_-]+$")
+    mode: Optional[str] = None
     env: Literal["dev", "staging", "prod", "stage"]
     # Hierarchy
     workspace_id: Optional[str] = None
@@ -67,6 +74,9 @@ class EventMeta(BaseModel):
     priority: EventPriority = EventPriority.INFO
     persist: PersistPolicy = PersistPolicy.ALWAYS
     last_event_id: Optional[str] = None
+    schema_version: str = Field(default=DEFAULT_STREAM_SCHEMA_VERSION)
+    severity: EventSeverity = Field(default=EventSeverity.INFO)
+    storage_class: StorageClass = Field(default=StorageClass.STREAM)
 
 
 # --- Canonical StreamEvent ---
@@ -88,6 +98,34 @@ class StreamEvent(BaseModel):
     routing: RoutingKeys
     data: Dict[str, Any] = Field(default_factory=dict)
     meta: EventMeta = Field(default_factory=EventMeta)
+
+    @root_validator(skip_on_failure=True)
+    def _require_contract_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if not event_contract_enforced():
+            return values
+        routing: RoutingKeys | None = values.get("routing")
+        ids: EventIds | None = values.get("ids")
+        meta: EventMeta | None = values.get("meta")
+        missing = []
+        if not routing or not routing.mode:
+            missing.append("routing.mode")
+        if not ids or not ids.request_id:
+            missing.append("ids.request_id")
+        if not ids or not ids.run_id:
+            missing.append("ids.run_id")
+        if not ids or not ids.step_id:
+            missing.append("ids.step_id")
+        if not values.get("trace_id"):
+            missing.append("trace_id")
+        if not meta or not meta.schema_version:
+            missing.append("meta.schema_version")
+        if not meta or not meta.severity:
+            missing.append("meta.severity")
+        if not meta or not meta.storage_class:
+            missing.append("meta.storage_class")
+        if missing:
+            raise ValueError(f"missing required stream envelope fields: {', '.join(sorted(missing))}")
+        return values
 
     class Config:
         json_encoders = {
@@ -118,6 +156,7 @@ def from_legacy_message(
     routing = RoutingKeys(
         tenant_id=tenant_id,
         env=env,  # type: ignore
+        mode=env,
         thread_id=msg.thread_id,
         actor_id=msg.sender.id,
         actor_type=actor_type,
@@ -152,7 +191,7 @@ def from_legacy_message(
         type=event_type,
         ts=msg.created_at,
         event_id=msg.id,
-        ids=EventIds(request_id=request_id),
+        ids=EventIds(request_id=request_id, run_id=request_id, step_id=msg.id),
         routing=routing,
         data=data_payload,
         meta=EventMeta(

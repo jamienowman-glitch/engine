@@ -1,0 +1,15 @@
+id	gate	repo	area	description	dod_pass_fail	depends_on	status	worker_type
+G0-GCS	Gate0	northstar-engines	storage	GCS raw/media_v2 write/read validated (gs://northstar-os-dev-northstar-raw; key tenants/t_system/lab/media_v2/smoke/<ts>.txt)	PASS	none	locked	verification
+G0-S3	Gate0	northstar-engines	storage	S3 PutObject blocked (AccessDenied) on bucket northstar-dev-boy for user northstar-dev; keep provider, fix IAM later	FAIL	none	open	infra-perms
+G1-ModeCTX	Gate1	northstar-engines	context	Switch RequestContext to mode (saas|enterprise|lab), remove X-Env, reject legacy env; require tenant/project/mode headers on HTTP/SSE/WS	PASS/FAIL on tests	test for context builder	planned	engine-core
+G1-Envelope	Gate1	northstar-engines	logging	Add mode/project/app/surface/run/step/schema_version/severity/storage_class to DatasetEvent/StreamEvent and emitters; no-op loggers forbidden	PASS/FAIL on tests	test_event_contract	planned	logging
+G1-NoMemory	Gate1	northstar-engines/runtime	Remove in-memory/noop defaults (repos/bus/logger); fail-fast startup when durable missing	PASS/FAIL on tests	test_real_infra_enforcement	planned	runtime
+G1-PII	Gate1	northstar-engines/security	Add PII pre-call redaction for LLM/tool/embedding + rehydration hook	PASS/FAIL on tests	test_pii_gate	planned	security
+G2-Replay	Gate2	northstar-engines/realtime	Implement durable stream timeline; SSE/WS resume from storage, not memory/Redis	PASS/FAIL on tests	test_stream_replay	blocked:G1-NoMemory	planned	realtime
+G2-AuditChain	Gate2	northstar-engines/logging	Add audit append-only with hash chaining/storage_class=audit	PASS/FAIL on tests	test_audit_hash_chain	planned	logging
+G2-MemoryDurable	Gate2	northstar-engines/memory	Make memory and nexus memory durable, tenant+mode+project scoped; no in-memory dict/backends	PASS/FAIL on tests	test_memory_persistence	blocked:G1-NoMemory	planned	memory
+G2-UsageComplete	Gate2	northstar-engines/billing	Add run/step/model/tool/storage_class=cost to usage events; durable repo	PASS/FAIL on tests	test_usage_events	blocked:G1-Envelope	planned	billing
+G2-HAZEAlign	Gate2	northstar-engines/nexus	Align vector explorer: mode headers, full envelope, durable logger, PII pre-call, no noop	PASS/FAIL on tests	test_contract_mode	blocked:G1-Envelope;G1-PII	planned	nexus
+G3-AgentsCtx	Gate3	northstar-agents	context Agents propagate mode/tenant/project headers, stable run/trace, no in-memory state	PASS/FAIL on agents tests	none	planned	agents
+G3-UITransport	Gate3	ui	transport	UI sends mode/tenant/project headers on HTTP/SSE/WS; Authorization required; no ?token	PASS/FAIL on UI contract check	none	planned	ui
+G3-ConnectorsCtx	Gate3	northstar-connectors	context	Connector calls carry tenant/mode/project; no noop backends	PASS/FAIL on integration check	none	planned	connectors
