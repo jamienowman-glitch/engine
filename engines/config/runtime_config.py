@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Dict, Optional
 
 from engines.common.identity import RequestContext
+from engines.cost.vertex_guard import allow_billable_vertex
 
 SLOT_VECTOR_STORE_PRIMARY = "vector_store_primary"
 SLOT_EMBED_PRIMARY = "embed_primary"
@@ -203,6 +204,70 @@ def get_braket_region() -> Optional[str]:
     return _get_env("BRAKET_REGION")
 
 
+
+
+def get_memory_backend() -> Optional[str]:
+    return _get_env("MEMORY_BACKEND")
+
+
+def get_storage_target() -> Optional[str]:
+    return get_raw_bucket() or get_datasets_bucket()
+
+
+def get_storage_provider() -> str:
+    if get_azure_storage_account() and get_azure_storage_container():
+        return "azure_blob"
+    raw_bucket = (get_raw_bucket() or "").strip()
+    if raw_bucket.lower().startswith("gs://"):
+        return "gcs"
+    if raw_bucket.lower().startswith("s3://"):
+        return "s3"
+    datasets_bucket = get_datasets_bucket() or ""
+    if datasets_bucket.lower().startswith("gs://"):
+        return "gcs"
+    if raw_bucket or datasets_bucket:
+        return "s3"
+    return "unknown"
+
+
+def get_model_provider() -> Optional[str]:
+    for name in ("MODEL_PROVIDER", "LLM_PROVIDER"):
+        value = _get_env(name)
+        if value:
+            return value
+    if _get_env("VERTEX_MODEL"):
+        return "vertex"
+    return None
+
+
+def get_azure_storage_account() -> Optional[str]:
+    return _get_env("AZURE_STORAGE_ACCOUNT")
+
+
+def get_azure_storage_container() -> Optional[str]:
+    return _get_env("AZURE_STORAGE_CONTAINER")
+
+
+def get_azure_storage_key() -> Optional[str]:
+    return _get_env("AZURE_STORAGE_KEY")
+
+
+def get_azure_cosmos_uri() -> Optional[str]:
+    return _get_env("AZURE_COSMOS_URI")
+
+
+def get_azure_cosmos_key() -> Optional[str]:
+    return _get_env("AZURE_COSMOS_KEY")
+
+
+def get_azure_cosmos_db() -> Optional[str]:
+    return _get_env("AZURE_COSMOS_DB")
+
+
+def get_azure_cosmos_container() -> Optional[str]:
+    return _get_env("AZURE_COSMOS_CONTAINER")
+
+
 @lru_cache(maxsize=1)
 def config_snapshot() -> dict:
     """Return a cached snapshot of relevant env-driven config."""
@@ -217,4 +282,16 @@ def config_snapshot() -> dict:
         "vector_index_id": get_vector_index_id(),
         "vector_endpoint_id": get_vector_endpoint_id(),
         "vector_project": get_vector_project(),
+        "storage_provider": get_storage_provider(),
+        "storage_target": get_storage_target(),
+        "memory_backend": get_memory_backend(),
+        "model_provider": get_model_provider(),
+        "allow_billable_vertex": allow_billable_vertex(),
+        "azure_storage_account": get_azure_storage_account(),
+        "azure_storage_container": get_azure_storage_container(),
+        "azure_storage_key": get_azure_storage_key(),
+        "azure_cosmos_uri": get_azure_cosmos_uri(),
+        "azure_cosmos_key": get_azure_cosmos_key(),
+        "azure_cosmos_db": get_azure_cosmos_db(),
+        "azure_cosmos_container": get_azure_cosmos_container(),
     }

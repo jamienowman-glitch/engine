@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from engines.common.identity import RequestContext
 from engines.common.selecta import SelectaResolver, get_selecta_resolver
 from engines.config import runtime_config
+from engines.cost.vertex_guard import ensure_billable_vertex_allowed
 from engines.nexus.schemas import NexusEmbedding, NexusKind
 
 try:  # pragma: no cover - optional dependency
@@ -195,6 +196,7 @@ class VertexVectorStore(NexusVectorStore):
 
     # --- internal ---
     def _ensure_endpoint(self, tenant_id: str, env: str) -> None:
+        ensure_billable_vertex_allowed("Vertex Vector Search")
         if getattr(self, "_endpoint", None) is not None:
             return
         cfg = RequestContext(request_id="selecta", tenant_id=tenant_id, env=env)

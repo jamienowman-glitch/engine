@@ -8,6 +8,7 @@ import os
 from typing import Dict, Iterable, List, Optional
 
 from engines.config import runtime_config
+from engines.cost.vertex_guard import ensure_billable_vertex_allowed
 
 try:  # pragma: no cover - import guarded for environments without Vertex libs
     from google.cloud import aiplatform  # type: ignore
@@ -31,6 +32,7 @@ def stream_chat(
     scope: Optional[Dict[str, str]] = None,
 ) -> Iterable[str]:
     """Stream chat tokens from Vertex Gemini. Falls back to a clear error if unavailable."""
+    ensure_billable_vertex_allowed("Vertex Gemini streaming")
     client = _client()
     if client is None:
         raise RuntimeError("Vertex AI client not available; install google-cloud-aiplatform")

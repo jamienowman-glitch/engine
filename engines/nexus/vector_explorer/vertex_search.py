@@ -9,6 +9,7 @@ except Exception:  # pragma: no cover
     aiplatform = None
 
 from engines.config import runtime_config
+from engines.cost.vertex_guard import ensure_billable_vertex_allowed
 from engines.nexus.embedding import EmbeddingAdapter, VertexEmbeddingAdapter
 from engines.nexus.vector_explorer.schemas import VectorExplorerQuery
 from engines.nexus.vector_explorer.search_backend import VectorSearchBackend
@@ -27,6 +28,7 @@ class VertexVectorSearchBackend(VectorSearchBackend):
         deployed_index_id: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> None:
+        ensure_billable_vertex_allowed("Vertex Explorer vector search")
         self._embedder = embedder or VertexEmbeddingAdapter()
         self._project = project or runtime_config.get_firestore_project()
         self._location = location or runtime_config.get_region() or "us-central1"
