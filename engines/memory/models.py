@@ -21,7 +21,8 @@ class MessageRecord(BaseModel):
 class SessionMemory(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     tenant_id: str
-    env: str
+    mode: str
+    project_id: str
     user_id: str
     session_id: str
     messages: List[MessageRecord] = Field(default_factory=list)
@@ -34,7 +35,8 @@ class SessionMemory(BaseModel):
 class Blackboard(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     tenant_id: str
-    env: str
+    mode: str
+    project_id: str
     surface: Optional[str] = None
     scope: str = "session"
     key: str

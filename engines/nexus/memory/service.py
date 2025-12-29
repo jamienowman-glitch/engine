@@ -11,6 +11,16 @@ from engines.memory.repository import MemoryRepository, memory_repo_from_env
 from engines.nexus.memory.models import SessionSnapshot, SessionTurn
 
 
+def _require_memory_scope(ctx: RequestContext) -> tuple[str, str]:
+    if not ctx.user_id:
+        raise RuntimeError("user_id required for session memory persistence")
+    if not ctx.mode:
+        raise RuntimeError("mode required for session memory persistence")
+    if not ctx.project_id:
+        raise RuntimeError("project_id required for session memory persistence")
+    return ctx.mode, ctx.project_id
+
+
 class SessionMemoryService:
     def __init__(self, repo: Optional[MemoryRepository] = None) -> None:
         self._repo = repo or memory_repo_from_env()
@@ -20,8 +30,7 @@ class SessionMemoryService:
         Append a turn to the session.
         Enforces tenancy via storage key.
         """
-        if not ctx.user_id:
-            raise RuntimeError("user_id required for session memory persistence")
+        mode, project_id = _require_memory_scope(ctx)
 
         # Ensure turn session_id matches
         if turn.session_id != session_id:
@@ -36,7 +45,9 @@ class SessionMemoryService:
             timestamp=turn.timestamp,
             metadata=metadata,
         )
-        self._repo.append_message(ctx.tenant_id, ctx.env, ctx.user_id, session_id, message)
+        self._repo.append_message(
+            ctx.tenant_id, mode, project_id, ctx.user_id, session_id, message
+        )
         
         # Log event
         default_event_logger(
@@ -48,6 +59,8 @@ class SessionMemoryService:
                 user_id=ctx.user_id,
                 metadata={
                     "session_id": session_id,
+                    "mode": mode,
+                    "project_id": project_id,
                     "role": turn.role,
                     "content_len": len(turn.content)
                 }
@@ -59,10 +72,10 @@ class SessionMemoryService:
         """
         Retrieve session snapshot.
         """
-        if not ctx.user_id:
-            raise RuntimeError("user_id required for session memory persistence")
-
-        session = self._repo.get_session(ctx.tenant_id, ctx.env, ctx.user_id, session_id)
+        mode, project_id = _require_memory_scope(ctx)
+        session = self._repo.get_session(
+            ctx.tenant_id, mode, project_id, ctx.user_id, session_id
+        )
         turns: List[SessionTurn] = []
         if session:
             for msg in session.messages:
@@ -86,7 +99,11 @@ class SessionMemoryService:
                 asset_id=session_id,
                 tenant_id=ctx.tenant_id,
                 user_id=ctx.user_id,
-                metadata={"turn_count": len(turns)}
+                metadata={
+                    "turn_count": len(turns),
+                    "mode": mode,
+                    "project_id": project_id,
+                }
             )
         )
 
@@ -95,7 +112,8 @@ class SessionMemoryService:
         return SessionSnapshot(
             session_id=session_id,
             tenant_id=ctx.tenant_id,
-            env=ctx.env,
+            mode=mode,
+            project_id=project_id,
             turns=turns,
             created_at=created_at,
             updated_at=updated_at,
