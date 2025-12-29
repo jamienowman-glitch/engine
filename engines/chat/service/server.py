@@ -49,6 +49,7 @@ from engines.three_wise.routes import router as three_wise_router
 from engines.firearms.routes import router as firearms_router
 from engines.memory.routes import router as memory_router
 from engines.kill_switch.routes import router as kill_switch_router
+from engines.ops.status import router as ops_status_router
 from engines.origin_snippets.routes import router as origin_snippets_router
 
 from engines.routing.manager import startup_validation_check
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
         app.include_router(bossman_router)
         app.include_router(aws_debug_router)
         app.include_router(kill_switch_router)
+        app.include_router(ops_status_router)
         app.include_router(analytics_events_router)
         app.include_router(three_wise_router)
         app.include_router(firearms_router)

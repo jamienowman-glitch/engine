@@ -14,6 +14,7 @@ except Exception:  # pragma: no cover
 from engines.common.identity import RequestContext
 from engines.common.selecta import SelectaResolver, get_selecta_resolver
 from engines.config import runtime_config
+from engines.cost.vertex_guard import ensure_billable_vertex_allowed
 
 
 class VectorStoreConfigError(RuntimeError):
@@ -211,6 +212,7 @@ class VertexExplorerVectorStore(ExplorerVectorStore):
         raise NotImplementedError("query_by_datapoint_id not explicitly supported in this strict adapter yet.")
 
     def _ensure_backend(self, ctx: RequestContext) -> None:
+        ensure_billable_vertex_allowed("Vertex Explorer vector backend")
         if getattr(self, "_endpoint", None) and getattr(self, "_index", None):
             return
         vs_cfg = self._selecta.vector_store_config(ctx)

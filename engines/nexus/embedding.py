@@ -7,6 +7,7 @@ from typing import List, Optional
 from engines.common.identity import RequestContext
 from engines.common.selecta import get_selecta_resolver
 from engines.config import runtime_config
+from engines.cost.vertex_guard import ensure_billable_vertex_allowed
 
 try:  # pragma: no cover - optional dependency
     from vertexai import init as vertexai_init  # type: ignore
@@ -44,6 +45,7 @@ class VertexEmbeddingAdapter(EmbeddingAdapter):
         self._client = client or self._init_client()
 
     def _init_client(self):
+        ensure_billable_vertex_allowed("Vertex embeddings")
         if vertexai_init is None or TextEmbeddingModel is None or MultiModalEmbeddingModel is None:
             raise RuntimeError("google-cloud-aiplatform/vertexai not installed for Vertex embeddings")
         ctx = self._default_ctx()
