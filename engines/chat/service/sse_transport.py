@@ -28,7 +28,7 @@ async def event_stream(
     """
     Yields strictly formatted SSE events (StreamEvent JSON) and attaches trace metadata.
     """
-    async for msg in subscribe_async(thread_id, last_event_id=last_event_id):
+    async for msg in subscribe_async(thread_id, last_event_id=last_event_id, context=request_context):
         event = from_legacy_message(
             msg,
             tenant_id=request_context.tenant_id,
@@ -81,5 +81,5 @@ async def post_message(
 
     verify_thread_access(request_context.tenant_id, thread_id)
 
-    msgs = await process_message(thread_id, sender, text)
+    msgs = await process_message(thread_id, sender, text, context=request_context)
     return {"posted": [m.dict() for m in msgs]}

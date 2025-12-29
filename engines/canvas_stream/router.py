@@ -22,11 +22,10 @@ logger = logging.getLogger(__name__)
 
 async def event_stream(
     canvas_id: str, 
-    tenant_id: str, 
-    env: str, 
+    request_context: RequestContext,
     last_event_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
-    async for msg in subscribe_canvas(canvas_id, last_event_id=last_event_id):
+    async for msg in subscribe_canvas(canvas_id, request_context, last_event_id=last_event_id):
         # Canvas messages might be wrapped JSON in 'text' from the message bus
         # We need to construct a proper StreamEvent.
         # Ideally, `subscribe_canvas` would yield StreamEvents directly, but it relies on `InMemoryBus` (legacy Message).
@@ -42,7 +41,7 @@ async def event_stream(
         # The content might be a "GestureEvent" dict or "Commit" dict.
         # We look for "kind" in content.
         
-        kind = content.get("kind", "canvas_commit")
+        kind = content.get("type") or content.get("kind") or "canvas_commit"
         
         # Build strict StreamEvent
         event = StreamEvent(
@@ -50,8 +49,12 @@ async def event_stream(
             ts=msg.created_at,
             event_id=msg.id,
             routing=RoutingKeys(
-                tenant_id=tenant_id,
-                env=env, # type: ignore
+                tenant_id=request_context.tenant_id,
+                env=request_context.env, # type: ignore
+                mode=request_context.mode,
+                project_id=request_context.project_id,
+                app_id=request_context.app_id,
+                surface_id=request_context.surface_id,
                 canvas_id=canvas_id,
                 actor_id=msg.sender.id,
                 # Assume human for now, or infer from sender ID prefix
@@ -88,8 +91,7 @@ async def stream_canvas(
     return StreamingResponse(
         event_stream(
             canvas_id=canvas_id,
-            tenant_id=request_context.tenant_id,
-            env=request_context.env,
+            request_context=request_context,
             last_event_id=last_event_id
         ),
         media_type="text/event-stream"
