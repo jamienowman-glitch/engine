@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from engines.chat.service.server import create_app
+from engines.budget.repository import InMemoryBudgetUsageRepository
+from engines.budget.service import BudgetService, set_budget_service
 from engines.nexus.vector_explorer import routes
 from engines.nexus.vector_explorer.repository import InMemoryVectorCorpusRepository
 from engines.nexus.vector_explorer.schemas import VectorExplorerItem
@@ -51,7 +52,11 @@ def test_vector_explorer_route(monkeypatch):
     )
 
     fake_service = VectorExplorerService(
-        repository=repo, vector_store=FakeVectorStore(), embedder=FakeEmbedder(), event_logger=lambda e: None
+        repository=repo,
+        vector_store=FakeVectorStore(),
+        embedder=FakeEmbedder(),
+        event_logger=lambda e: None,
+        budget_service=BudgetService(repo=InMemoryBudgetUsageRepository()),
     )
     monkeypatch.setattr(routes, "_service", fake_service)
 
@@ -64,11 +69,21 @@ def test_vector_explorer_route(monkeypatch):
     token = default_jwt_service().issue_token(
         {"sub": user.id, "email": user.email, "tenant_ids": [tenant.id], "default_tenant_id": tenant.id, "role_map": {tenant.id: "owner"}}
     )
-    client = TestClient(create_app())
+    set_budget_service(BudgetService(repo=InMemoryBudgetUsageRepository()))
+    app = FastAPI()
+    app.include_router(routes.router)
+    client = TestClient(app)
     resp = client.get(
         "/vector-explorer/scene",
         params={"space": "demo", "query_mode": "all"},
-        headers={"Authorization": f"Bearer {token}", "X-Tenant-Id": "t_demo", "X-Env": "dev"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Tenant-Id": "t_demo",
+            "X-Mode": "saas",
+            "X-Project-Id": "p_demo",
+            "X-Surface-Id": "surf_demo",
+            "X-App-Id": "app_demo",
+        },
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -98,13 +113,24 @@ def test_vector_explorer_membership_required(monkeypatch):
         vector_store=FakeVectorStore(),
         embedder=EmbeddingAdapter(),  # type: ignore[arg-type]
         event_logger=lambda e: None,
+        budget_service=BudgetService(repo=InMemoryBudgetUsageRepository()),
     )
     monkeypatch.setattr(routes, "_service", fake_service)
 
-    client = TestClient(create_app())
+    set_budget_service(BudgetService(repo=InMemoryBudgetUsageRepository()))
+    app = FastAPI()
+    app.include_router(routes.router)
+    client = TestClient(app)
     resp = client.get(
         "/vector-explorer/scene",
         params={"space": "demo", "query_mode": "all"},
-        headers={"X-Tenant-Id": "t_demo", "X-Env": "dev", "Authorization": f"Bearer {token}"},
+        headers={
+            "X-Tenant-Id": "t_demo",
+            "X-Mode": "saas",
+            "X-Project-Id": "p_demo",
+            "X-Surface-Id": "surf_demo",
+            "X-App-Id": "app_demo",
+            "Authorization": f"Bearer {token}",
+        },
     )
     assert resp.status_code in {401, 403}

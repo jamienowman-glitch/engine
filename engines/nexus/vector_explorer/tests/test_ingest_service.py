@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from engines.budget.repository import InMemoryBudgetUsageRepository
+from engines.budget.service import BudgetService
 from engines.nexus.embedding import EmbeddingResult, EmbeddingAdapter
 from engines.nexus.vector_explorer.ingest_service import VectorIngestService
 from engines.nexus.vector_explorer.repository import InMemoryVectorCorpusRepository
@@ -49,6 +51,7 @@ def test_ingest_text_creates_corpus_and_vector():
         embedder=FakeEmbedder(),
         gcs_client=FakeGcs(),
         event_logger=lambda e: None,
+        budget_service=BudgetService(repo=InMemoryBudgetUsageRepository()),
     )
     result = svc.ingest(
         tenant_id="t_demo",
@@ -74,6 +77,7 @@ def test_ingest_image_requires_file():
         embedder=FakeEmbedder(),
         gcs_client=FakeGcs(),
         event_logger=lambda e: None,
+        budget_service=BudgetService(repo=InMemoryBudgetUsageRepository()),
     )
     result = svc.ingest(
         tenant_id="t_demo",
