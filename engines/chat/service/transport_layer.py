@@ -1,4 +1,4 @@
-"""In-memory pub/sub for chat transports (PLAN-024 stubs)."""
+"""Durable-aware pub/sub for chat transports (PLAN-024 stubs)."""
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +6,17 @@ import uuid
 from typing import Any, Callable, Dict, List, Tuple
 
 from engines.chat.contracts import Message, Thread, Contact, ChatScope
+from engines.common.identity import RequestContext
+from engines.realtime.contracts import (
+    StreamEvent,
+    EventIds,
+    RoutingKeys,
+    ActorType,
+    EventMeta,
+    EventPriority,
+    PersistPolicy,
+)
+from engines.realtime.timeline import get_timeline_store
 
 
 class InMemoryBus:
@@ -97,20 +108,83 @@ class LazyBus:
 bus = LazyBus()
 
 
-def publish_message(thread_id: str, sender: Contact, text: str, role: str = "user", scope: ChatScope | None = None) -> Message:
+def _actor_type(role: str) -> ActorType:
+    if role == "agent":
+        return ActorType.AGENT
+    if role == "system":
+        return ActorType.SYSTEM
+    return ActorType.HUMAN
+
+
+def _message_to_stream_event(msg: Message, context: RequestContext) -> StreamEvent:
+    return StreamEvent(
+        type="chat_message",
+        event_id=msg.id,
+        ts=msg.created_at,
+        ids=EventIds(
+            request_id=context.request_id,
+            run_id=msg.thread_id,
+            step_id=msg.id,
+        ),
+        routing=RoutingKeys(
+            tenant_id=context.tenant_id,
+            env=context.env,
+            mode=context.mode,
+            project_id=context.project_id,
+            app_id=context.app_id,
+            surface_id=context.surface_id,
+            thread_id=msg.thread_id,
+            actor_id=msg.sender.id,
+            actor_type=_actor_type(msg.role),
+        ),
+        data={
+            "text": msg.text,
+            "role": msg.role,
+            "scope": msg.scope.dict(exclude_none=True) if msg.scope else None,
+        },
+        trace_id=context.request_id,
+        meta=EventMeta(
+            priority=EventPriority.INFO,
+            persist=PersistPolicy.ALWAYS,
+            last_event_id=msg.id,
+        ),
+    )
+
+
+def publish_message(
+    thread_id: str,
+    sender: Contact,
+    text: str,
+    role: str = "user",
+    scope: ChatScope | None = None,
+    context: RequestContext | None = None,
+) -> Message:
+    if context is None:
+        raise RuntimeError("RequestContext is required to publish a chat message")
     msg = Message(id=uuid.uuid4().hex, thread_id=thread_id, sender=sender, text=text, role=role, scope=scope)
     bus.add_message(thread_id, msg)
+    get_timeline_store().append(thread_id, _message_to_stream_event(msg, context), context)
     return msg
 
 
-async def subscribe_async(thread_id: str, last_event_id: str | None = None):
+async def subscribe_async(thread_id: str, last_event_id: str | None = None, context: RequestContext | None = None):
     queue: asyncio.Queue[Message] = asyncio.Queue()
-    
-    # Replay buffer if needed
-    if last_event_id:
-        missed = bus.get_messages(thread_id, after_id=last_event_id)
-        for m in missed:
-            queue.put_nowait(m)
+    if context is None:
+        raise RuntimeError("RequestContext is required for stream replay")
+
+    # Durable replay
+    timeline = get_timeline_store()
+    replay_events = timeline.list_after(thread_id, after_event_id=last_event_id)
+    for ev in replay_events:
+        sender = Contact(id=ev.routing.actor_id)
+        msg = Message(
+            id=ev.event_id,
+            thread_id=thread_id,
+            sender=sender,
+            text=ev.data.get("text", ""),
+            role=ev.data.get("role", "user"),
+        )
+        queue.put_nowait(msg)
 
     sub_id = bus.subscribe(thread_id, lambda msg: queue.put_nowait(msg))
     try:

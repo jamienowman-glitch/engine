@@ -23,6 +23,7 @@ from engines.chat.service.transport_layer import bus
 from engines.common.identity import RequestContext, get_request_context
 from engines.identity.auth import AuthContext, get_auth_context
 from engines.realtime.contracts import (
+    EventIds,
     StreamEvent,
     RoutingKeys,
     ActorType,
@@ -31,6 +32,7 @@ from engines.realtime.contracts import (
     EventMeta,
     from_legacy_message,
 )
+from engines.realtime.timeline import get_timeline_store
 from engines.realtime.isolation import verify_thread_access
 
 router = APIRouter()
@@ -167,18 +169,13 @@ async def websocket_endpoint(
     await manager.connect(thread_id, websocket, user_id)
     hb_task = asyncio.create_task(heartbeat(websocket))
 
-    missed_messages = bus.get_messages(thread_id, after_id=last_event_id)
-    for msg in missed_messages:
-        event = from_legacy_message(
-            msg,
-            tenant_id=request_context.tenant_id,
-            env=request_context.env,
-            request_id=request_context.request_id,
-            trace_id=request_context.request_id,
-        )
+    timeline = get_timeline_store()
+    replay_events = timeline.list_after(thread_id, after_event_id=last_event_id)
+    cursor = last_event_id
+    for event in replay_events:
         await manager.send_personal(websocket, json.loads(event.json()))
+        cursor = event.event_id
 
-    cursor = missed_messages[-1].id if missed_messages else last_event_id
     if cursor:
         resume_event = StreamEvent(
             type="resume_cursor",
@@ -214,6 +211,7 @@ async def websocket_endpoint(
             last_event_id=None,
         ),
     )
+    timeline.append(thread_id, presence_event, request_context)
     await manager.broadcast_event(thread_id, presence_event)
 
     def subscriber(msg: Message):
@@ -241,7 +239,7 @@ async def websocket_endpoint(
                 sender = Contact(id=user_id)
                 text = data.get("text", "")
                 if text:
-                    await process_message(thread_id, sender, text)
+                    await process_message(thread_id, sender, text, context=request_context)
 
             elif msg_type == "gesture":
                 gesture_event = StreamEvent(
@@ -274,6 +272,7 @@ async def websocket_endpoint(
                 )
 
                 bus.add_message(thread_id, bus_msg)
+                timeline.append(thread_id, gesture_event, request_context)
 
             elif msg_type == "presence_ping":
                 pass
@@ -296,6 +295,7 @@ async def websocket_endpoint(
                 last_event_id=None,
             ),
         )
+        timeline.append(thread_id, leave_event, request_context)
         await manager.broadcast_event(thread_id, leave_event)
     except Exception:
         manager.disconnect(thread_id, websocket)

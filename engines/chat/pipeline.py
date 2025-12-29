@@ -43,6 +43,8 @@ async def process_message(
     context: RequestContext | None = None,
 ) -> List[Message]:
     """Persist the incoming message, log it, and emit an LLM-backed agent response."""
+    if context is None:
+        raise RuntimeError("RequestContext is required for chat processing")
     (
         tenant_id,
         env,
@@ -91,7 +93,7 @@ async def process_message(
     )
     log_event(event)
 
-    user_msg = publish_message(thread_id, sender, text, role="user", scope=scope)
+    user_msg = publish_message(thread_id, sender, text, role="user", scope=scope, context=context)
 
     # Switch: Invoke Core Bridge (Async)
     from engines.chat.service import core_bridge
