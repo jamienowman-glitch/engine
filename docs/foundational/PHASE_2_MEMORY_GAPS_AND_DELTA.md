@@ -1,0 +1,12 @@
+# Phase 2 Memory — Gaps and Delta (repo-backed)
+
+- Durable memory storage required: current memory services (engines/memory/service.py:10-53; repository.py:20-111,104-111) and nexus session memory (engines/nexus/memory/service.py:16-72) default to in-memory; Firestore optional only for legacy memory. Phase 2 needs durable per-tenant storage with no silent fallback.
+- Canonical envelope propagation: memory/vector explorer events lack project/app/run/step/request/trace/severity/schema_version (engines/nexus/vector_explorer/service.py:72-104; ingest_service.py:75-201). Must emit full Phase 1/2 envelope for all memory/logging events.
+- PII guard before embeddings/tool calls: vector explorer query/ingest and chat llm_client send raw text to Vertex without redaction (engines/nexus/vector_explorer/service.py:107-135; ingest_service.py:168-188; engines/chat/service/llm_client.py:27-50). Apply redaction layer pre-call and in logs.
+- Logging sinks not wired: vector explorer event_logger defaults to no-op (service.py:167-175; ingest_service.py:32-47). Phase 2 requires fail-fast if sinks unavailable and storage_class routing to ops/audit streams.
+- Realtime durability: SSE/WS replay relies on in-memory bus; no durable stream history (engines/chat/service/sse_transport.py:23-68; ws_transport.py:136-205; transport_layer.py:65-121). Need durable stream timeline with resume from storage.
+- Routing registry application: backends selected via env/selecta (vector store, memory, budget, raw_storage) with in-memory fallbacks (engines/nexus/vector_explorer/vector_store.py:63-226; engines/memory/repository.py:104-111; engines/budget/repository.py:175-182; engines/nexus/raw_storage/repository.py:35-123). Apply routing registry and fail on missing config.
+- Cost/usage enrichment: UsageEvents in vector explorer and budget lack run_id/step_id/schema_version (engines/nexus/vector_explorer/service.py:118-135; ingest_service.py:228-246; engines/budget/routes.py:12-78). Add run/step/model/tool fields per Phase 1 event types.
+- Audit/immutability: vector ingest audit uses emit_audit_event without hash chaining or full context (ingest_service.py:160-165). Introduce audit hash chain and append-only sink.
+- Structured/tabular memory absent: no BigQuery/tabular state for “hard data”; establish minimal table-backed store or mark as required dependency.
+- Session autosave/canvas/workspace state missing: no persistence for canvas/working state; add models/routes with tenant/env/project/surface/app scope and durable backend.

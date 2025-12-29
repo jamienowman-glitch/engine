@@ -1,1 +1,4 @@
-"""Media Atom v2: typed assets, artifacts, and HTTP routes."""
+# Compatibility shim: keep old import paths working after moving to engines.muscle.media_v2
+import importlib, sys as _sys
+_mod = importlib.import_module("engines.muscle.media_v2")
+_sys.modules[__name__] = _mod

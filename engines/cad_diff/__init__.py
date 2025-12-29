@@ -1,29 +1,4 @@
-"""CAD Diff module - change tracking and impact analysis."""
-
-from .models import (
-    ChangeType,
-    SeverityLevel,
-    ElementDiff,
-    BoQDelta,
-    CostDelta,
-    TaskImpact,
-    CadDiff,
-    DiffRequest,
-    DiffResponse,
-)
-from .service import DiffService
-from .routes import router
-
-__all__ = [
-    "ChangeType",
-    "SeverityLevel",
-    "ElementDiff",
-    "BoQDelta",
-    "CostDelta",
-    "TaskImpact",
-    "CadDiff",
-    "DiffRequest",
-    "DiffResponse",
-    "DiffService",
-    "router",
-]
+# Compatibility shim: keep old import paths working after moving to engines.muscle.cad_diff
+import importlib, sys as _sys
+_mod = importlib.import_module("engines.muscle.cad_diff")
+_sys.modules[__name__] = _mod

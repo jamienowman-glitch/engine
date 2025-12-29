@@ -1,26 +1,4 @@
-"""CAD Semantics Engine - Classify and build semantic models."""
-
-from engines.cad_semantics.models import (
-    EdgeType,
-    Level,
-    SemanticElement,
-    SemanticModel,
-    SemanticRequest,
-    SemanticResponse,
-    SemanticType,
-    SpatialGraph,
-)
-from engines.cad_semantics.service import get_semantic_service, set_semantic_service
-
-__all__ = [
-    "EdgeType",
-    "Level",
-    "SemanticElement",
-    "SemanticModel",
-    "SemanticRequest",
-    "SemanticResponse",
-    "SemanticType",
-    "SpatialGraph",
-    "get_semantic_service",
-    "set_semantic_service",
-]
+# Compatibility shim: keep old import paths working after moving to engines.muscle.cad_semantics
+import importlib, sys as _sys
+_mod = importlib.import_module("engines.muscle.cad_semantics")
+_sys.modules[__name__] = _mod

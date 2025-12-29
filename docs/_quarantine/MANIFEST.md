@@ -1,0 +1,113 @@
+# Quarantine Manifest
+- Timestamp: 2025-12-27T13:27:02Z
+- HEAD: f4fe6b346c172af8abc417d70059f22959fc7b36
+- Policy: legacy/plan docs moved out of main tree; no deletions.
+
+## Moved from docs/constitution -> docs/_quarantine/constitution (reason: constitution legacy)
+- docs/constitution/00_CONSTITUTION.md -> docs/_quarantine/constitution/00_CONSTITUTION.md
+- docs/constitution/01-sse-control.md -> docs/_quarantine/constitution/01-sse-control.md
+- docs/constitution/01_FACTORY_RULES.md -> docs/_quarantine/constitution/01_FACTORY_RULES.md
+- docs/constitution/02_ROLES_AND_MODELS.md -> docs/_quarantine/constitution/02_ROLES_AND_MODELS.md
+- docs/constitution/CLUSTER_CAPABILITIES.md -> docs/_quarantine/constitution/CLUSTER_CAPABILITIES.md
+- docs/constitution/DESIGN_TOOLS_SCOPING.md -> docs/_quarantine/constitution/DESIGN_TOOLS_SCOPING.md
+- docs/constitution/FIREARMS_AND_HITL.md -> docs/_quarantine/constitution/FIREARMS_AND_HITL.md
+- docs/constitution/INFRA_GCP_DEV.md -> docs/_quarantine/constitution/INFRA_GCP_DEV.md
+- docs/constitution/MANIFEST_TOKEN_GRAPH.md -> docs/_quarantine/constitution/MANIFEST_TOKEN_GRAPH.md
+- docs/constitution/ORCHESTRATION_PATTERNS.md -> docs/_quarantine/constitution/ORCHESTRATION_PATTERNS.md
+- docs/constitution/READ THIS FIRST – REPO CONTRACT -> docs/_quarantine/constitution/READ THIS FIRST – REPO CONTRACT
+- docs/constitution/SEO_FUME_PRIMITIVES.md -> docs/_quarantine/constitution/SEO_FUME_PRIMITIVES.md
+- docs/constitution/STRATEGY_LOCK_ACTIONS.md -> docs/_quarantine/constitution/STRATEGY_LOCK_ACTIONS.md
+- docs/constitution/TILES_SURFACE.md -> docs/_quarantine/constitution/TILES_SURFACE.md
+- docs/constitution/TOOL_REGISTRY.md -> docs/_quarantine/constitution/TOOL_REGISTRY.md
+
+## Moved from docs/engines -> docs/_quarantine/engines_legacy/engines (reason: legacy engine/program docs)
+- docs/engines/AGENTS-CHAT.MD -> docs/_quarantine/engines_legacy/engines/AGENTS-CHAT.MD
+- docs/engines/ENGINE_COMBOS.md -> docs/_quarantine/engines_legacy/engines/ENGINE_COMBOS.md
+- docs/engines/ENGINE_INVENTORY.md -> docs/_quarantine/engines_legacy/engines/ENGINE_INVENTORY.md
+- docs/engines/ENGINE_MUSCLE_RECON_v1.md -> docs/_quarantine/engines_legacy/engines/ENGINE_MUSCLE_RECON_v1.md
+- docs/engines/ENGINE_REGISTRY.md -> docs/_quarantine/engines_legacy/engines/ENGINE_REGISTRY.md
+- docs/engines/FONTS_HELPER.md -> docs/_quarantine/engines_legacy/engines/FONTS_HELPER.md
+- docs/engines/REACTIVE_CONTENT.md -> docs/_quarantine/engines_legacy/engines/REACTIVE_CONTENT.md
+- docs/engines/audio_program/00_MASTER_PLAN_samples.md -> docs/_quarantine/engines_legacy/engines/audio_program/00_MASTER_PLAN_samples.md
+- docs/engines/audio_program/00_MASTER_PLAN_samples_guide.md -> docs/_quarantine/engines_legacy/engines/audio_program/00_MASTER_PLAN_samples_guide.md
+- docs/engines/audio_program/01_MASTER_PLAN_audio_fx_pattern_index.md -> docs/_quarantine/engines_legacy/engines/audio_program/01_MASTER_PLAN_audio_fx_pattern_index.md
+- docs/engines/audio_program/PHASE_P00_field_to_samples.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P00_field_to_samples.md
+- docs/engines/audio_program/PHASE_P01_sample_fx_chain.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P01_sample_fx_chain.md
+- docs/engines/audio_program/PHASE_P02_sample_normalise_tagging.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P02_sample_normalise_tagging.md
+- docs/engines/audio_program/PHASE_P03_audio_timeline_render.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P03_audio_timeline_render.md
+- docs/engines/audio_program/PHASE_P04_pattern_groove_engine.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P04_pattern_groove_engine.md
+- docs/engines/audio_program/PHASE_P05_resampling_song_structure.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P05_resampling_song_structure.md
+- docs/engines/audio_program/PHASE_P06_multi_bus_mix.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P06_multi_bus_mix.md
+- docs/engines/audio_program/PHASE_P07_sample_pack_generator.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P07_sample_pack_generator.md
+- docs/engines/audio_program/PHASE_P08_groove_extraction_humanisation.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P08_groove_extraction_humanisation.md
+- docs/engines/audio_program/PHASE_P09_arrangement_suggestion.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P09_arrangement_suggestion.md
+- docs/engines/audio_program/PHASE_P10_audio_to_video_origin.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P10_audio_to_video_origin.md
+- docs/engines/audio_program/PHASE_P11_sound_design_macros.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P11_sound_design_macros.md
+- docs/engines/audio_program/PHASE_P12_harmonic_scale_adaptation.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P12_harmonic_scale_adaptation.md
+- docs/engines/audio_program/PHASE_P13_performance_capture_quantise.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P13_performance_capture_quantise.md
+- docs/engines/audio_program/PHASE_P14_source_separation_feed_in.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P14_source_separation_feed_in.md
+- docs/engines/audio_program/PHASE_P15_mix_snapshot_delta.md -> docs/_quarantine/engines_legacy/engines/audio_program/PHASE_P15_mix_snapshot_delta.md
+- docs/engines/audio_program/origin_snippets.md -> docs/_quarantine/engines_legacy/engines/audio_program/origin_snippets.md
+- docs/engines/engine_marketing.md -> docs/_quarantine/engines_legacy/engines/engine_marketing.md
+- docs/engines/geometry_cad_program/00_MASTER_PLAN_lane_B.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/00_MASTER_PLAN_lane_B.md
+- docs/engines/geometry_cad_program/CAD_TODO_RHINO_LITE.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/CAD_TODO_RHINO_LITE.md
+- docs/engines/geometry_cad_program/PHASE_AV01_rig_and_morph_foundations.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_AV01_rig_and_morph_foundations.md
+- docs/engines/geometry_cad_program/PHASE_AV02_parametric_avatar_builder.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_AV02_parametric_avatar_builder.md
+- docs/engines/geometry_cad_program/PHASE_AV03_asset_kits_and_materials.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_AV03_asset_kits_and_materials.md
+- docs/engines/geometry_cad_program/PHASE_AV04_animation_and_export.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_AV04_animation_and_export.md
+- docs/engines/geometry_cad_program/PHASE_CAD01_ingest_P0_P2.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD01_ingest_P0_P2.md
+- docs/engines/geometry_cad_program/PHASE_CAD02_semantics_P3_P5.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD02_semantics_P3_P5.md
+- docs/engines/geometry_cad_program/PHASE_CAD03_quantities_P6.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD03_quantities_P6.md
+- docs/engines/geometry_cad_program/PHASE_CAD04_costing_P7_P8.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD04_costing_P7_P8.md
+- docs/engines/geometry_cad_program/PHASE_CAD05_plan_of_works_P9.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD05_plan_of_works_P9.md
+- docs/engines/geometry_cad_program/PHASE_CAD06_diffs_and_change_tracking_P10.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD06_diffs_and_change_tracking_P10.md
+- docs/engines/geometry_cad_program/PHASE_CAD07_risk_and_compliance_P11_P12.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD07_risk_and_compliance_P11_P12.md
+- docs/engines/geometry_cad_program/PHASE_CAD08_portfolio_and_lifecycle_P13_P14.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD08_portfolio_and_lifecycle_P13_P14.md
+- docs/engines/geometry_cad_program/PHASE_CAD09_integrations_and_APIs_P15.md -> docs/_quarantine/engines_legacy/engines/geometry_cad_program/PHASE_CAD09_integrations_and_APIs_P15.md
+- docs/engines/image_program/IMAGE_THUMBNAIL_TODOS.md -> docs/_quarantine/engines_legacy/engines/image_program/IMAGE_THUMBNAIL_TODOS.md
+- docs/engines/image_program/PHASE_I_COMFORT_social_thumbnails.md -> docs/_quarantine/engines_legacy/engines/image_program/PHASE_I_COMFORT_social_thumbnails.md
+- docs/engines/inventory_and_audio_video_overview.md -> docs/_quarantine/engines_legacy/engines/inventory_and_audio_video_overview.md
+- docs/engines/marketing_program/MC_CRITICAL_TODOS.md -> docs/_quarantine/engines_legacy/engines/marketing_program/MC_CRITICAL_TODOS.md
+- docs/engines/marketing_program/PHASE_MC01_cadence_core.md -> docs/_quarantine/engines_legacy/engines/marketing_program/PHASE_MC01_cadence_core.md
+- docs/engines/marketing_program/PHASE_MC02_anchor_offsets_to_timeline.md -> docs/_quarantine/engines_legacy/engines/marketing_program/PHASE_MC02_anchor_offsets_to_timeline.md
+- docs/engines/media_program/00_MASTER_PLAN_lane_A.md -> docs/_quarantine/engines_legacy/engines/media_program/00_MASTER_PLAN_lane_A.md
+- docs/engines/media_program/PHASE_A01_audio_backend_hardening.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_A01_audio_backend_hardening.md
+- docs/engines/media_program/PHASE_A02_audio_semantic_upgrade.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_A02_audio_semantic_upgrade.md
+- docs/engines/media_program/PHASE_A03_audio_creative_tools.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_A03_audio_creative_tools.md
+- docs/engines/media_program/PHASE_A04_dawish_timeline_mix.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_A04_dawish_timeline_mix.md
+- docs/engines/media_program/PHASE_I01_image_layer_core.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_I01_image_layer_core.md
+- docs/engines/media_program/PHASE_I02_selections_masks_adjustments_interop.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_I02_selections_masks_adjustments_interop.md
+- docs/engines/media_program/PHASE_I03_typography_variable_fonts.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_I03_typography_variable_fonts.md
+- docs/engines/media_program/PHASE_I04_vector_primitives_svg.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_I04_vector_primitives_svg.md
+- docs/engines/media_program/PHASE_I05_integration_and_presets.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_I05_integration_and_presets.md
+- docs/engines/media_program/PHASE_T01_pro_timeline_muscle.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_T01_pro_timeline_muscle.md
+- docs/engines/media_program/PHASE_V01_real_detectors_and_artifacts.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_V01_real_detectors_and_artifacts.md
+- docs/engines/media_program/PHASE_V02_fx_transitions_quality.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_V02_fx_transitions_quality.md
+- docs/engines/media_program/PHASE_V03_render_preview_hardening.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_V03_render_preview_hardening.md
+- docs/engines/media_program/PHASE_V04_multicam_assist_focus.md -> docs/_quarantine/engines_legacy/engines/media_program/PHASE_V04_multicam_assist_focus.md
+- docs/engines/media_program/TIMELINE_CRITICAL_TODOS.md -> docs/_quarantine/engines_legacy/engines/media_program/TIMELINE_CRITICAL_TODOS.md
+- docs/engines/media_program/VIDEO_TODO_CAPCUT_LITE.md -> docs/_quarantine/engines_legacy/engines/media_program/VIDEO_TODO_CAPCUT_LITE.md
+- docs/engines/statew_of-the_world_address_template.md -> docs/_quarantine/engines_legacy/engines/statew_of-the_world_address_template.md
+- docs/engines/timeline_program/PHASE_TL01_agnostic_timeline_engine.md -> docs/_quarantine/engines_legacy/engines/timeline_program/PHASE_TL01_agnostic_timeline_engine.md
+- docs/engines/timeline_program/TIMELINE_CORE_TODOS.md -> docs/_quarantine/engines_legacy/engines/timeline_program/TIMELINE_CORE_TODOS.md
+- docs/engines/video_audio_atomic_design.md -> docs/_quarantine/engines_legacy/engines/video_audio_atomic_design.md
+- docs/engines/video_multicam.md -> docs/_quarantine/engines_legacy/engines/video_multicam.md
+- docs/engines/video_program/00_MASTER_PLAN.md -> docs/_quarantine/engines_legacy/engines/video_program/00_MASTER_PLAN.md
+- docs/engines/video_timeline/examples.md -> docs/_quarantine/engines_legacy/engines/video_timeline/examples.md
+- docs/engines/viewer_program/PHASE_VIEW01_cad_gantt_and_overlays.md -> docs/_quarantine/engines_legacy/engines/viewer_program/PHASE_VIEW01_cad_gantt_and_overlays.md
+
+## Moved from repo root -> docs/_quarantine/root_legacy_md (reason: root legacy plan/trace doc quarantined)
+- MASTER_BACKEND_HARDENING_PLAN.md -> docs/_quarantine/root_legacy_md/MASTER_BACKEND_HARDENING_PLAN.md
+- PHASE_00_DONE_REQUESTCONTEXT_EXTENSION.md -> docs/_quarantine/root_legacy_md/PHASE_00_DONE_REQUESTCONTEXT_EXTENSION.md
+- PHASE_01_STREAMING_AUTH_AND_ISOLATION.md -> docs/_quarantine/root_legacy_md/PHASE_01_STREAMING_AUTH_AND_ISOLATION.md
+- PHASE_02_NEXUS_AUTH_CONTEXT_ENFORCEMENT.md -> docs/_quarantine/root_legacy_md/PHASE_02_NEXUS_AUTH_CONTEXT_ENFORCEMENT.md
+- PHASE_03_RAW_STORAGE_PRESIGN_REGISTER_FIX.md -> docs/_quarantine/root_legacy_md/PHASE_03_RAW_STORAGE_PRESIGN_REGISTER_FIX.md
+- PHASE_04_AUDIT_LOGGING_TRACE_IDS_IMMUTABILITY.md -> docs/_quarantine/root_legacy_md/PHASE_04_AUDIT_LOGGING_TRACE_IDS_IMMUTABILITY.md
+- PHASE_05_GLOBAL_FEATURE_FLAGS_TENANT0_LAYER.md -> docs/_quarantine/root_legacy_md/PHASE_05_GLOBAL_FEATURE_FLAGS_TENANT0_LAYER.md
+- PHASE_06_GATECHAIN_EXTERNAL_MUTATIONS.md -> docs/_quarantine/root_legacy_md/PHASE_06_GATECHAIN_EXTERNAL_MUTATIONS.md
+- PHASE_07_PRIVACY_TRAIN_PREFS_API_PERSISTENCE.md -> docs/_quarantine/root_legacy_md/PHASE_07_PRIVACY_TRAIN_PREFS_API_PERSISTENCE.md
+- PHASE_08_REALTIME_REGISTRY_DURABILITY_THROTTLES.md -> docs/_quarantine/root_legacy_md/PHASE_08_REALTIME_REGISTRY_DURABILITY_THROTTLES.md
+- PROMPT_LANE_A_MINI.md -> docs/_quarantine/root_legacy_md/PROMPT_LANE_A_MINI.md
+- PROMPT_LANE_B_MINI.md -> docs/_quarantine/root_legacy_md/PROMPT_LANE_B_MINI.md
+- PROMPT_MINI_WORKER_EXECUTION.md -> docs/_quarantine/root_legacy_md/PROMPT_MINI_WORKER_EXECUTION.md
+- RUNBOOK_PROD_READINESS_CHECK.md -> docs/_quarantine/root_legacy_md/RUNBOOK_PROD_READINESS_CHECK.md
