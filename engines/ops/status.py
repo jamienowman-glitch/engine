@@ -20,6 +20,7 @@ def _build_status_report() -> Dict[str, Any]:
         "datasets_bucket": snapshot.get("datasets_bucket"),
         "memory_backend": snapshot.get("memory_backend"),
         "model_provider": snapshot.get("model_provider"),
+        "vector_backend": snapshot.get("vector_backend"),
         "allow_billable_vertex": snapshot.get("allow_billable_vertex"),
         "azure_storage_account": snapshot.get("azure_storage_account"),
         "azure_storage_container": snapshot.get("azure_storage_container"),
