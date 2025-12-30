@@ -47,7 +47,12 @@ def _setup():
             "role_map": {tenant.id: "owner"},
         }
     )
-    headers = {"X-Tenant-Id": tenant.id, "X-Env": "dev", "Authorization": f"Bearer {token}"}
+    headers = {
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": f"Bearer {token}",
+    }
     set_budget_service(BudgetService(repo=InMemoryBudgetUsageRepository()))
     return tenant, headers
 
@@ -95,6 +100,11 @@ def test_budget_tenant_isolation():
     client.post("/budget/usage", json=payload, headers=headers)
 
     # different tenant -> 403 on listing
-    other_headers = {"X-Tenant-Id": "t_other", "X-Env": "dev", "Authorization": headers["Authorization"]}
+    other_headers = {
+        "X-Tenant-Id": "t_other",
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": headers["Authorization"],
+    }
     resp = client.get("/budget/usage", headers=other_headers)
     assert resp.status_code in {400, 403}

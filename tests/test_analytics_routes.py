@@ -41,7 +41,12 @@ def _signup_and_login(client: TestClient, tenant_name: str = "Acme") -> tuple[st
 def test_owner_can_upsert_and_read_analytics_config():
     client = TestClient(create_app())
     token, tenant_id = _signup_and_login(client)
-    headers = {"Authorization": f"Bearer {token}", "X-Tenant-Id": tenant_id, "X-Env": "dev"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Tenant-Id": tenant_id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+    }
 
     # Strategy lock to allow config updates
     lock_payload = {
@@ -80,7 +85,12 @@ def test_owner_can_upsert_and_read_analytics_config():
 def test_analytics_falls_back_to_system_config():
     client = TestClient(create_app())
     token, tenant_id = _signup_and_login(client)
-    headers = {"Authorization": f"Bearer {token}", "X-Tenant-Id": tenant_id, "X-Env": "dev"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Tenant-Id": tenant_id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+    }
 
     # Only system config exists
     svc = get_analytics_service()
@@ -104,7 +114,7 @@ def test_analytics_falls_back_to_system_config():
 
     # Resolver reports source=system
     resolver: AnalyticsResolver = get_analytics_resolver()
-    ctx = RequestContext(tenant_id=tenant_id, env="dev", user_id="u1")
+    ctx = RequestContext(tenant_id=tenant_id, mode="saas", project_id="p_demo", user_id="u1")
     effective = resolver.resolve(ctx, "squared")
     assert effective is not None
     assert effective.ga4_measurement_id == "G-SYSTEM"

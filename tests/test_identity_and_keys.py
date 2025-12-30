@@ -32,30 +32,41 @@ def test_request_context_from_headers_and_body(monkeypatch):
     app = _build_app()
     client = TestClient(app)
 
-    resp = client.get("/ctx", headers={"X-Tenant-Id": "t_demo", "X-Env": "dev", "X-User-Id": "u1"})
+    resp = client.get(
+        "/ctx",
+        headers={
+            "X-Tenant-Id": "t_demo",
+            "X-Mode": "saas",
+            "X-Project-Id": "p_demo",
+            "X-User-Id": "u1",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["tenant_id"] == "t_demo"
-    assert data["env"] == "dev"
+    assert data["mode"] == "saas"
     assert data["user_id"] == "u1"
 
     # fallback to body values when headers/query are absent
-    resp = client.post("/ctx", json={"tenant_id": "t_body", "env": "stage", "user_id": "u2"})
+    resp = client.post(
+        "/ctx",
+        json={"tenant_id": "t_body", "mode": "saas", "project_id": "p_body", "user_id": "u2"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["tenant_id"] == "t_body"
-    assert data["env"] == "staging"  # stage is normalised
+    assert data["mode"] == "saas"
     assert data["user_id"] == "u2"
 
 
 def test_assert_context_matches_env_mismatch():
-    ctx = RequestContext(request_id="r", tenant_id="t_demo", env="dev")
+    ctx = RequestContext(request_id="r", tenant_id="t_demo", mode="saas", project_id="p1")
     try:
         from engines.common.identity import assert_context_matches
 
-        assert_context_matches(ctx, "t_demo", "prod")
+        assert_context_matches(ctx, "t_demo", "enterprise")
     except Exception as exc:
-        assert "env mismatch" in str(exc)
+        assert "mode mismatch" in str(exc)
 
 
 class FakeSecretManager(SecretManagerClient):

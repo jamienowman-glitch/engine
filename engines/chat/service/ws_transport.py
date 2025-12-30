@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Dict, Optional
+import uuid
+from typing import Any, Dict, Optional
 
 from fastapi import (
     APIRouter,
@@ -14,14 +15,14 @@ from fastapi import (
     Depends,
     HTTPException,
     WebSocketException,
-    Request,
 )
 
 from engines.chat.contracts import Contact, Message
 from engines.chat.pipeline import process_message
 from engines.chat.service.transport_layer import bus
-from engines.common.identity import RequestContext, get_request_context
-from engines.identity.auth import AuthContext, get_auth_context
+from engines.common.identity import RequestContext
+from engines.identity.auth import AuthContext, get_optional_auth_context
+from engines.identity.ticket_service import TicketError, validate_ticket
 from engines.realtime.contracts import (
     EventIds,
     StreamEvent,
@@ -39,44 +40,63 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-async def _websocket_request_context(websocket: WebSocket) -> RequestContext:
-    scope = dict(websocket.scope)
-    scope["type"] = "http"
-    scope["method"] = "GET"
+def _merge_scope(context_data: Dict[str, Any], ticket_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = {**(context_data or {})}
+    ticket_payload = ticket_payload or {}
+    required_fields = ("tenant_id", "mode", "project_id")
+    for field in required_fields:
+        value = merged.get(field) or ticket_payload.get(field)
+        if not value:
+            raise WebSocketException(code=4003, reason=f"{field} is required in hello context")
+        if merged.get(field) and ticket_payload.get(field) and merged[field] != ticket_payload[field]:
+            raise WebSocketException(code=4003, reason=f"{field} mismatch with ticket")
+        merged[field] = value
 
-    async def _receive() -> dict:
-        return {"type": "http.request", "body": b"", "more_body": False}
+    merged.setdefault("request_id", merged.get("trace_id") or ticket_payload.get("request_id") or uuid.uuid4().hex)
+    for field in ("surface_id", "app_id", "user_id"):
+        if merged.get(field) is None and ticket_payload.get(field) is not None:
+            merged[field] = ticket_payload[field]
+    return merged
 
-    request = Request(scope, receive=_receive)
+
+def _context_from_scope(scope: Dict[str, Any]) -> RequestContext:
     try:
-        headers = {
-            key.decode().lower(): value.decode()
-            for key, value in websocket.scope.get("headers", [])
-        }
-        return await get_request_context(
-            request,
-            header_tenant=headers.get("x-tenant-id"),
-            header_env=headers.get("x-env"),
-            header_user=headers.get("x-user-id"),
-            header_role=headers.get("x-membership-role"),
-            header_request_id=headers.get("x-request-id"),
-            authorization=headers.get("authorization"),
-            query_tenant=None,
-            query_env=None,
-            query_user=None,
+        ctx = RequestContext(
+            tenant_id=scope["tenant_id"],
+            mode=scope["mode"],
+            project_id=scope["project_id"],
+            request_id=scope.get("request_id") or uuid.uuid4().hex,
+            surface_id=scope.get("surface_id"),
+            app_id=scope.get("app_id"),
+            user_id=scope.get("user_id"),
+            actor_id=scope.get("user_id"),
         )
-    except HTTPException as exc:
-        raise WebSocketException(code=4003, reason=str(exc.detail)) from exc
+    except ValueError as exc:
+        raise WebSocketException(code=4003, reason=str(exc)) from exc
+    return ctx
 
 
-async def _websocket_auth_context(websocket: WebSocket) -> AuthContext:
-    authorization = websocket.headers.get("authorization")
-    if not authorization:
-        raise WebSocketException(code=4003, reason="Auth Required")
-    try:
-        return get_auth_context(authorization)
-    except HTTPException as exc:
-        raise WebSocketException(code=4003, reason=str(exc.detail)) from exc
+def _resolve_hello_context(
+    hello: Dict[str, Any],
+    ticket_token: Optional[str],
+    auth_context: Optional[AuthContext],
+) -> tuple[RequestContext, Optional[str]]:
+    if hello.get("type") != "hello":
+        raise WebSocketException(code=4003, reason="first message must be type='hello'")
+
+    ticket_payload: Optional[Dict[str, Any]] = None
+    if ticket_token:
+        try:
+            ticket_payload = validate_ticket(ticket_token)
+        except TicketError as exc:
+            raise WebSocketException(code=4003, reason=str(exc)) from exc
+
+    merged_scope = _merge_scope(hello.get("context") or {}, ticket_payload)
+    ctx = _context_from_scope(merged_scope)
+    if auth_context and auth_context.default_tenant_id != ctx.tenant_id:
+        raise WebSocketException(code=4003, reason="Tenant mismatch")
+    last_event_id = hello.get("last_event_id")
+    return ctx, last_event_id
 
 
 def _build_routing_keys(
@@ -85,7 +105,7 @@ def _build_routing_keys(
     return RoutingKeys(
         tenant_id=ctx.tenant_id,
         env=ctx.env,
-        mode=ctx.env,
+        mode=ctx.mode,
         project_id=ctx.project_id,
         app_id=ctx.app_id,
         surface_id=ctx.surface_id,
@@ -100,7 +120,6 @@ class ConnectionManager:
         self.active: Dict[str, list[tuple[WebSocket, str]]] = {}
 
     async def connect(self, thread_id: str, websocket: WebSocket, user_id: str) -> None:
-        await websocket.accept()
         self.active.setdefault(thread_id, []).append((websocket, user_id))
         logger.info(f"WS Connect: thread={thread_id} user={user_id}")
 
@@ -144,21 +163,38 @@ async def heartbeat(websocket: WebSocket):
 async def websocket_endpoint(
     websocket: WebSocket,
     thread_id: str,
-    last_event_id: Optional[str] = Query(None, alias="last_event_id"),
-    request_context: RequestContext = Depends(_websocket_request_context),
-    auth_context: AuthContext = Depends(_websocket_auth_context),
+    ticket: Optional[str] = Query(None, alias="ticket"),
+    auth_context: Optional[AuthContext] = Depends(get_optional_auth_context),
 ):
-    user_id = request_context.user_id or auth_context.user_id or "anon"
-    request_context.user_id = user_id
-
-    if auth_context.default_tenant_id != request_context.tenant_id:
-        logger.warning(
-            "WS tenant mismatch: %s != %s",
-            auth_context.default_tenant_id,
-            request_context.tenant_id,
-        )
-        await websocket.close(code=4003, reason="Tenant mismatch")
+    await websocket.accept()
+    try:
+        hello = await websocket.receive_json()
+    except Exception:
+        await websocket.close(code=4003, reason="hello required")
         return
+
+    ticket_token = hello.get("ticket") or ticket
+    if not auth_context and not ticket_token:
+        await websocket.close(code=4003, reason="Auth or ticket required")
+        return
+
+    try:
+        request_context, last_event_id = _resolve_hello_context(
+            hello,
+            ticket_token,
+            auth_context,
+        )
+    except WebSocketException as exc:
+        await websocket.close(code=exc.code, reason=exc.reason)
+        return
+
+    user_id = (
+        request_context.user_id
+        or (auth_context.user_id if auth_context else None)
+        or "anon"
+    )
+    request_context.user_id = user_id
+    request_context.actor_id = user_id
 
     try:
         verify_thread_access(request_context.tenant_id, thread_id)

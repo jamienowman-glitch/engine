@@ -50,7 +50,12 @@ def _client():
             "role_map": {tenant.id: "owner"},
         }
     )
-    headers = {"X-Tenant-Id": tenant.id, "X-Env": "dev", "Authorization": f"Bearer {token}"}
+    headers = {
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": f"Bearer {token}",
+    }
     set_temperature_service(TemperatureService(repo=InMemoryTemperatureRepository()))
     sl_repo = InMemoryStrategyLockRepository()
     set_strategy_lock_repo(sl_repo)

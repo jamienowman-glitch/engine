@@ -2,6 +2,7 @@ import os
 
 import pytest
 
+from engines.chat.service import transport_layer
 from engines.chat.service.transport_layer import bus
 from engines.identity import state as identity_state
 from engines.identity.jwt_service import default_jwt_service
@@ -28,6 +29,7 @@ def identity_key_config():
 @pytest.fixture(autouse=True)
 def reset_stream_state():
     registry.clear()
+    transport_layer.bus._impl = transport_layer.InMemoryBus()
     bus.messages.clear()
     bus.subscribers.clear()
     bus.threads.clear()

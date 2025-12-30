@@ -35,21 +35,34 @@ def test_protected_keys_requires_membership():
     # Allowed for member tenant
     resp = client.get(
         f"/tenants/{tenant_id}/keys",
-        headers={"Authorization": f"Bearer {token}", "X-Tenant-Id": tenant_id, "X-Env": "dev"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Tenant-Id": tenant_id,
+            "X-Mode": "saas",
+            "X-Project-Id": "p_demo",
+        },
     )
     assert resp.status_code == 200
 
     # Forbidden for other tenant
     resp2 = client.get(
         "/tenants/t_other/keys",
-        headers={"Authorization": f"Bearer {token}", "X-Tenant-Id": "t_other", "X-Env": "dev"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Tenant-Id": "t_other",
+            "X-Mode": "saas",
+            "X-Project-Id": "p_demo",
+        },
     )
     assert resp2.status_code in {400, 403}
 
 
 def test_missing_token_is_rejected():
     client = TestClient(create_app())
-    resp = client.get("/tenants/t_demo/keys", headers={"X-Tenant-Id": "t_demo", "X-Env": "dev"})
+    resp = client.get(
+        "/tenants/t_demo/keys",
+        headers={"X-Tenant-Id": "t_demo", "X-Mode": "saas", "X-Project-Id": "p_demo"},
+    )
     assert resp.status_code == 401
 
 
