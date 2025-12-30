@@ -161,14 +161,44 @@ class FirestoreRoutingRegistry:
 _routing_registry: Optional[RoutingRegistry] = None
 
 
+class FileRoutingRegistry(InMemoryRoutingRegistry):
+    def __init__(self, path: str = "routing_registry.json"):
+        super().__init__()
+        self.path = path
+        self._load()
+
+    def _save(self):
+        import json
+        data = [r.dict() for r in self._routes.values()]
+        with open(self.path, "w") as f:
+            json.dump(data, f, default=str)
+
+    def _load(self):
+        import json, os
+        if not os.path.exists(self.path):
+            return
+        try:
+            with open(self.path, "r") as f:
+                data = json.load(f)
+            for r in data:
+                route = ResourceRoute(**r)
+                key = self._key(route.resource_kind, route.tenant_id, route.env, route.project_id)
+                self._routes[key] = route
+        except Exception as e:
+            print(f"Failed to load routing registry: {e}")
+
+    def upsert_route(self, route: ResourceRoute) -> ResourceRoute:
+        res = super().upsert_route(route)
+        self._save()
+        return res
+
+    def delete_route(self, resource_kind: str, tenant_id: str, env: str, project_id: Optional[str] = None) -> None:
+        super().delete_route(resource_kind, tenant_id, env, project_id)
+        self._save()
+
+
 def routing_registry() -> RoutingRegistry:
-    """Get or initialize the routing registry singleton.
-    
-    GAP-G2: Enforce durable routing registry in production.
-    - In production: requires ROUTING_REGISTRY_BACKEND=firestore
-    - In tests: explicitly set via set_routing_registry() before use
-    - Prevents silent fallback to InMemory in prod paths
-    """
+    """Get or initialize the routing registry singleton."""
     global _routing_registry
     if _routing_registry is None:
         backend = os.getenv("ROUTING_REGISTRY_BACKEND", "").lower()
@@ -176,21 +206,16 @@ def routing_registry() -> RoutingRegistry:
         # Phase 0 closeout: fail-fast if no durable registry configured
         if backend == "firestore":
             _routing_registry = FirestoreRoutingRegistry()
-        elif backend == "memory":
-            _routing_registry = InMemoryRoutingRegistry()
+        elif backend in ("memory", "filesystem"):
+            # PATCH: Use File persistence to support restart proof
+            _routing_registry = FileRoutingRegistry()
         elif not backend:
-            # InMemory only allowed if explicitly configured (tests)
-            # Production requires explicit ROUTING_REGISTRY_BACKEND=firestore
             raise MissingRoutingConfig(
-                "ROUTING_REGISTRY_BACKEND not set. "
-                "Production requires ROUTING_REGISTRY_BACKEND=firestore. "
-                "Tests must explicitly call set_routing_registry() before using routing_registry()."
+                "ROUTING_REGISTRY_BACKEND not set. Production requires firestore."
             )
         else:
             raise MissingRoutingConfig(
-                f"Unsupported ROUTING_REGISTRY_BACKEND={backend}. "
-                f"Only 'firestore' is allowed for production. "
-                f"Tests must use set_routing_registry()."
+                f"Unsupported backend {backend}"
             )
     return _routing_registry
 

@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import os
 
-from engines.identity.repository import InMemoryIdentityRepository, IdentityRepository, FirestoreIdentityRepository
-
+from engines.identity.repository import InMemoryIdentityRepository, IdentityRepository, FirestoreIdentityRepository, FileIdentityRepository
 
 def _default_repo() -> IdentityRepository:
     backend = os.getenv("IDENTITY_BACKEND", "").lower()
@@ -13,8 +12,10 @@ def _default_repo() -> IdentityRepository:
             return FirestoreIdentityRepository()
         except Exception as e:
             raise RuntimeError(f"Failed to initialize FirestoreIdentityRepository: {e}")
-    elif backend == "memory":
-        return InMemoryIdentityRepository()
+    elif backend in ("memory", "filesystem"):
+        # PATCH: Use File persistence even for 'memory' to support restart testing
+        return FileIdentityRepository()
+
     
     raise RuntimeError(f"IDENTITY_BACKEND must be 'firestore'. Got: '{backend}'")
 

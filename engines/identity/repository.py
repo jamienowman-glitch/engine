@@ -482,5 +482,124 @@ class FirestoreIdentityRepository:
             return None
         data = snap.to_dict()
         data.update(kwargs)
-        self._col(self._col_projects).document(doc_id).set(data)
-        return ControlPlaneProject(**data)
+
+class FileIdentityRepository(InMemoryIdentityRepository):
+    def __init__(self, path: str = "identity_store.json") -> None:
+        super().__init__()
+        self.path = path
+        self._load()
+
+    def _save(self):
+        import json
+        data = {
+            "users": {k: v.dict() for k, v in self._users.items()},
+            "tenants": {k: v.dict() for k, v in self._tenants.items()},
+            "memberships": {k: v.dict() for k, v in self._memberships.items()},
+            "keys": {f"{k[0]}|{k[1]}|{k[2]}": v.dict() for k, v in self._keys.items()},
+            "analytics": {f"{k[0]}|{k[1]}|{k[2]}": v.dict() for k, v in self._analytics.items()},
+            "tenant_modes": {k: v.dict() for k, v in self._tenant_modes.items()},
+            "surfaces": {k: v.dict() for k, v in self._surfaces.items()},
+            "apps": {k: v.dict() for k, v in self._apps.items()},
+            "projects": {f"{k[0]}|{k[1]}|{k[2]}": v.dict() for k, v in self._projects.items()},
+        }
+        with open(self.path, "w") as f:
+            json.dump(data, f, default=str)
+
+    def _load(self):
+        import json, os
+        if not os.path.exists(self.path):
+            return
+        try:
+            with open(self.path, "r") as f:
+                data = json.load(f)
+            
+            for k, v in data.get("users", {}).items():
+                self._users[k] = User(**v)
+            for k, v in data.get("tenants", {}).items():
+                self._tenants[k] = Tenant(**v)
+            for k, v in data.get("memberships", {}).items():
+                self._memberships[k] = TenantMembership(**v)
+            
+            for k, v in data.get("keys", {}).items():
+                parts = k.split("|")
+                if len(parts) == 3:
+                    self._keys[(parts[0], parts[1], parts[2])] = TenantKeyConfig(**v)
+            
+            for k, v in data.get("analytics", {}).items():
+                parts = k.split("|")
+                if len(parts) == 3:
+                    self._analytics[(parts[0], parts[1], parts[2])] = TenantAnalyticsConfig(**v)
+            
+            for k, v in data.get("tenant_modes", {}).items():
+                self._tenant_modes[k] = TenantMode(**v)
+            for k, v in data.get("surfaces", {}).items():
+                self._surfaces[k] = Surface(**v)
+            for k, v in data.get("apps", {}).items():
+                self._apps[k] = App(**v)
+            
+            for k, v in data.get("projects", {}).items():
+                parts = k.split("|")
+                if len(parts) == 3:
+                    self._projects[(parts[0], parts[1], parts[2])] = ControlPlaneProject(**v)
+        except Exception as e:
+            print(f"Failed to load identity store: {e}")
+
+    def create_user(self, user: User) -> User:
+        res = super().create_user(user)
+        self._save()
+        return res
+
+    def create_tenant(self, tenant: Tenant) -> Tenant:
+        res = super().create_tenant(tenant)
+        self._save()
+        return res
+
+    def create_membership(self, membership: TenantMembership) -> TenantMembership:
+        res = super().create_membership(membership)
+        self._save()
+        return res
+
+    def set_key_config(self, config: TenantKeyConfig) -> TenantKeyConfig:
+        res = super().set_key_config(config)
+        self._save()
+        return res
+    
+    def upsert_analytics_config(self, config: TenantAnalyticsConfig) -> TenantAnalyticsConfig:
+        res = super().upsert_analytics_config(config)
+        self._save()
+        return res
+
+    def create_tenant_mode(self, mode: TenantMode) -> TenantMode:
+        res = super().create_tenant_mode(mode)
+        self._save()
+        return res
+
+    def create_surface(self, surface: Surface) -> Surface:
+        res = super().create_surface(surface)
+        self._save()
+        return res
+
+    def create_app(self, app: App) -> App:
+        res = super().create_app(app)
+        self._save()
+        return res
+
+    def create_project(self, project: ControlPlaneProject) -> ControlPlaneProject:
+        res = super().create_project(project)
+        self._save()
+        return res
+    
+    def update_surface(self, surface_id: str, **kwargs) -> Optional[Surface]:
+        res = super().update_surface(surface_id, **kwargs)
+        if res: self._save()
+        return res
+    
+    def update_app(self, app_id: str, **kwargs) -> Optional[App]:
+        res = super().update_app(app_id, **kwargs)
+        if res: self._save()
+        return res
+    
+    def update_project(self, tenant_id: str, env: str, project_id: str, **kwargs) -> Optional[ControlPlaneProject]:
+        res = super().update_project(tenant_id, env, project_id, **kwargs)
+        if res: self._save()
+        return res
