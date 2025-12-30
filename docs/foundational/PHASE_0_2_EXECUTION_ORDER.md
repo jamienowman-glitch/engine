@@ -6,8 +6,8 @@ Rationale: We already proved real persistence on GCS (gs://northstar-os-dev-nort
 ## Gate 1 — Contract foundation (Mode-only, envelopes, no in-memory, PII pre-call)
 Rationale: Before replay/memory/audit, we must enforce the core contract: mode replaces env, full event envelopes, ban in-memory/noop defaults, and PII redaction before any LLM/tool/embedding. This prevents further work from depending on legacy env or lossy logging paths.
 
-## Gate 2 — Persistence of streams, memory, audits, usage, HAZE alignment
-Rationale: With Gate 1 enforced, make realtime replay durable, memory durable/scoped, audit hash-chained, usage enriched, and vector explorer aligned. These depend on the contract and durable infra from Gate 0/1.
+## Gate 2 — Persistence of streams, memory, audits, usage, HAZE alignment (COMPLETE)
+Rationale: Gate 2 deliverables are now merged (memory durable, durable replay, vector-ish ingest/retrieval, cost kill-switch with /ops/status, Azure stubs). Gate 3 can now focus on clients.
 
 ## Gate 3 — Client/runtime propagation (agents, UI, connectors)
 Rationale: After the engine-side contract is solid, ensure clients (agents/UI/connectors) send mode/tenant/project headers and avoid in-memory assumptions. This is last to avoid rework while the contract stabilizes upstream.
