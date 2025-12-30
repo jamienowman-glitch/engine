@@ -96,6 +96,46 @@ class FirestoreResourceRegistry:
         raise NotImplementedError("Firestore registry cannot be cleared in production")
 
 
+class FileResourceRegistry(InMemoryResourceRegistry):
+    def __init__(self, path: str = "isolation_registry.json"):
+        super().__init__()
+        self.path = path
+        self._load()
+
+    def _save(self):
+        import json
+        data = {
+            "threads": self._threads,
+            "canvases": self._canvases,
+        }
+        with open(self.path, "w") as f:
+            json.dump(data, f)
+
+    def _load(self):
+        import json, os
+        if not os.path.exists(self.path):
+            return
+        try:
+            with open(self.path, "r") as f:
+                data = json.load(f)
+            self._threads = data.get("threads", {})
+            self._canvases = data.get("canvases", {})
+        except Exception as e:
+            print(f"Failed to load isolation registry: {e}")
+
+    def register_thread(self, tenant_id: str, thread_id: str) -> None:
+        super().register_thread(tenant_id, thread_id)
+        self._save()
+
+    def register_canvas(self, tenant_id: str, canvas_id: str) -> None:
+        super().register_canvas(tenant_id, canvas_id)
+        self._save()
+
+    def clear(self) -> None:
+        super().clear()
+        self._save()
+
+
 def _default_registry() -> ResourceRegistry:
     backend = (os.getenv("REALTIME_REGISTRY_BACKEND") or "memory").lower()
     if backend == "firestore":
@@ -103,7 +143,14 @@ def _default_registry() -> ResourceRegistry:
             return FirestoreResourceRegistry()
         except Exception as exc:
             logger.warning("Firestore registry unavailable: %s", exc)
+    if backend in ("memory", "filesystem"):
+        # PATCH: Use File persistence for smoke test
+        if backend == "filesystem":
+            return FileResourceRegistry()
+        # Fallback to memory if explicitly memory
+        return InMemoryResourceRegistry()
     return InMemoryResourceRegistry()
+
 
 
 registry: ResourceRegistry = _default_registry()
