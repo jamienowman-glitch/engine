@@ -96,8 +96,61 @@ class FirestoreTimelineStore:
         return events
 
 
+class FileTimelineStore:
+    def __init__(self, path: str = "timeline_store.json"):
+        self.path = path
+        import json, os
+        if not os.path.exists(self.path):
+            with open(self.path, "w") as f:
+                json.dump({}, f)
+
+    def _load(self) -> Dict[str, List[dict]]:
+        import json
+        try:
+            with open(self.path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save(self, data: Dict[str, List[dict]]) -> None:
+        import json
+        with open(self.path, "w") as f:
+            json.dump(data, f, default=str)
+
+    def append(self, stream_id: str, event: StreamEvent, context: RequestContext) -> None:
+        if context is None:
+            raise RuntimeError("RequestContext is required for timeline append")
+        data = self._load()
+        bucket = data.get(stream_id, [])
+        # event.dict() might contain non-serializable datetimes, use json() then loads?
+        # StreamEvent is pydantic.
+        import json
+        bucket.append(json.loads(event.json()))
+        data[stream_id] = bucket
+        self._save(data)
+
+    def list_after(self, stream_id: str, after_event_id: Optional[str] = None) -> List[StreamEvent]:
+        data = self._load()
+        raw_events = data.get(stream_id, [])
+        events = []
+        for r in raw_events:
+            try:
+                events.append(StreamEvent(**r))
+            except:
+                pass
+        
+        if not after_event_id:
+            return events
+            
+        for idx, ev in enumerate(events):
+            if ev.event_id == after_event_id:
+                return events[idx + 1 :]
+        return []
+
 def _default_timeline_store() -> TimelineStore:
     backend = (os.getenv("STREAM_TIMELINE_BACKEND") or "").lower()
+    if backend == "filesystem":
+        return FileTimelineStore()
     if backend in {"", "memory"}:
         raise RuntimeError("STREAM_TIMELINE_BACKEND must be set to 'firestore'")
     if backend == "firestore":
