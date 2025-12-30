@@ -268,6 +268,13 @@ def get_azure_cosmos_container() -> Optional[str]:
     return _get_env("AZURE_COSMOS_CONTAINER")
 
 
+def get_vector_backend() -> str:
+    backend = (_get_env("KNOWLEDGE_BACKEND") or "filesystem").lower()
+    if backend == "firestore":
+        return "bm25-firestore"
+    return "bm25-filesystem"
+
+
 @lru_cache(maxsize=1)
 def config_snapshot() -> dict:
     """Return a cached snapshot of relevant env-driven config."""
@@ -294,4 +301,5 @@ def config_snapshot() -> dict:
         "azure_cosmos_key": get_azure_cosmos_key(),
         "azure_cosmos_db": get_azure_cosmos_db(),
         "azure_cosmos_container": get_azure_cosmos_container(),
+        "vector_backend": get_vector_backend(),
     }
