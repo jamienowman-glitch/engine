@@ -176,6 +176,8 @@ def routing_registry() -> RoutingRegistry:
         # Phase 0 closeout: fail-fast if no durable registry configured
         if backend == "firestore":
             _routing_registry = FirestoreRoutingRegistry()
+        elif backend == "memory":
+            _routing_registry = InMemoryRoutingRegistry()
         elif not backend:
             # InMemory only allowed if explicitly configured (tests)
             # Production requires explicit ROUTING_REGISTRY_BACKEND=firestore
