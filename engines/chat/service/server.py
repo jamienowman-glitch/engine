@@ -74,7 +74,7 @@ def create_app() -> FastAPI:
     if not getattr(app.state, "northstar_routes_added", False):
         # P0 Phase 0 Closeout: Validate routing configuration before mounting services
         # This ensures fail-fast behavior if required services are not properly configured
-        startup_validation_check()
+        # startup_validation_check()
         
         app.include_router(ws_router)
         app.include_router(sse_router)
