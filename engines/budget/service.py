@@ -10,6 +10,7 @@ from engines.budget.repository import BudgetUsageRepository, budget_repo_from_en
 from engines.common.identity import RequestContext
 from engines.common.aws_runtime import aws_identity
 from engines.kill_switch.service import get_kill_switch_service
+from engines.logging.events.contract import StorageClass
 
 
 class BudgetService:
@@ -24,6 +25,13 @@ class BudgetService:
             get_kill_switch_service().ensure_provider_allowed(ctx, ev.provider)
             if (ev.provider or "").lower() == "aws":
                 self._attach_aws_metadata(ev)
+            ev.mode = ev.mode or ctx.mode
+            ev.project_id = ev.project_id or ctx.project_id
+            ev.request_id = ev.request_id or ctx.request_id
+            ev.trace_id = ev.trace_id or ctx.request_id
+            ev.run_id = ev.run_id or ctx.request_id
+            ev.step_id = ev.step_id or f"usage.{ev.tool_type or ev.tool_id or 'event'}"
+            ev.storage_class = StorageClass.COST
             saved.append(self.repo.record_usage(ev))
         return saved
 

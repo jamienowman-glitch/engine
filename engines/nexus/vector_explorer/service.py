@@ -170,6 +170,10 @@ class VectorExplorerService:
                         tokens_input=est_tokens,
                         tokens_output=0,
                         cost=0,
+                        request_id=ctx.request_id,
+                        trace_id=query.trace_id or ctx.request_id,
+                        run_id=query.trace_id or ctx.request_id,
+                        step_id=f"vector_explorer.{query.query_mode.value}",
                     )
                 ],
             )
