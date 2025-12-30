@@ -22,7 +22,12 @@ def _setup_identity():
     token = default_jwt_service().issue_token(
         {"sub": user.id, "email": user.email, "tenant_ids": [tenant.id], "default_tenant_id": tenant.id, "role_map": {tenant.id: "owner"}}
     )
-    headers = {"Authorization": f"Bearer {token}", "X-Tenant-Id": tenant.id, "X-Env": "dev"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+    }
     return headers
 
 

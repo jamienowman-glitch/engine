@@ -69,7 +69,12 @@ def _setup():
 def test_protected_key_routes_enforce_roles():
     tenant, token_owner, token_viewer = _setup()
     client = TestClient(create_app())
-    headers_owner = {"X-Tenant-Id": tenant.id, "X-Env": "dev", "Authorization": f"Bearer {token_owner}"}
+    headers_owner = {
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": f"Bearer {token_owner}",
+    }
     payload = {
         "slot": "llm_primary",
         "env": "dev",
@@ -79,7 +84,12 @@ def test_protected_key_routes_enforce_roles():
     resp = client.post(f"/tenants/{tenant.id}/keys", json=payload, headers=headers_owner)
     assert resp.status_code == 200
 
-    headers_viewer = {"X-Tenant-Id": tenant.id, "X-Env": "dev", "Authorization": f"Bearer {token_viewer}"}
+    headers_viewer = {
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": f"Bearer {token_viewer}",
+    }
     resp = client.get(f"/tenants/{tenant.id}/keys", headers=headers_viewer)
     assert resp.status_code == 403
 
@@ -94,8 +104,18 @@ def test_temperature_config_requires_admin():
         "performance_floors": {"weekly_leads": 10},
         "cadence_floors": {},
     }
-    headers_owner = {"X-Tenant-Id": tenant.id, "X-Env": "dev", "Authorization": f"Bearer {token_owner}"}
-    headers_viewer = {"X-Tenant-Id": tenant.id, "X-Env": "dev", "Authorization": f"Bearer {token_viewer}"}
+    headers_owner = {
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": f"Bearer {token_owner}",
+    }
+    headers_viewer = {
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+        "Authorization": f"Bearer {token_viewer}",
+    }
 
     # add strategy lock to allow owner action
     lock_payload = {"surface": "squared", "scope": "kpi_corridor", "title": "allow temp", "allowed_actions": ["temperature:upsert_floors"]}

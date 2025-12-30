@@ -33,7 +33,7 @@ def _client():
 
 def test_key_slot_create_and_get():
     client, repo, secrets = _client()
-    headers = {"X-Tenant-Id": "t_demo", "X-Env": "dev"}
+    headers = {"X-Tenant-Id": "t_demo", "X-Mode": "saas", "X-Project-Id": "p_demo"}
     payload = {
         "slot": "llm_primary",
         "env": "dev",
@@ -63,7 +63,7 @@ def test_key_slot_create_and_get():
 
 def test_key_slot_mismatch_rejected():
     client, _, _ = _client()
-    headers = {"X-Tenant-Id": "t_demo", "X-Env": "dev"}
+    headers = {"X-Tenant-Id": "t_demo", "X-Mode": "saas", "X-Project-Id": "p_demo"}
     payload = {
         "slot": "llm_primary",
         "env": "dev",

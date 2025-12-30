@@ -45,8 +45,13 @@ def _setup_identity() -> tuple[RequestContext, dict, InMemoryIdentityRepository]
     token = default_jwt_service().issue_token(
         {"sub": user.id, "email": user.email, "tenant_ids": [tenant.id], "default_tenant_id": tenant.id, "role_map": {tenant.id: "owner"}}
     )
-    headers = {"Authorization": f"Bearer {token}", "X-Tenant-Id": tenant.id, "X-Env": "dev"}
-    ctx = RequestContext(tenant_id=tenant.id, env="dev", user_id=user.id)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Tenant-Id": tenant.id,
+        "X-Mode": "saas",
+        "X-Project-Id": "p_demo",
+    }
+    ctx = RequestContext(tenant_id=tenant.id, mode="saas", project_id="p_demo", user_id=user.id)
     return ctx, headers, repo
 
 
