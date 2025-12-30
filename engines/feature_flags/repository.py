@@ -51,38 +51,61 @@ class FirestoreFeatureFlagRepository:
         self._doc(tenant_id, env).delete()
 
 
+
+class InMemoryFeatureFlagRepository:
+    def __init__(self):
+        self._store: Dict[Tuple[str, str], FeatureFlags] = {}
+
+    def get_flags(self, tenant_id: str, env: str) -> Optional[FeatureFlags]:
+        return self._store.get((tenant_id, env))
+
+    def set_flags(self, flags: FeatureFlags) -> FeatureFlags:
+        self._store[(flags.tenant_id, flags.env)] = flags
+        return flags
+
+    def delete_flags(self, tenant_id: str, env: str) -> None:
+        self._store.pop((tenant_id, env), None)
+
+
 class FeatureFlagRepository:
     def __init__(self, backend: Optional[str] = None, firestore_client: Optional[Any] = None):
         # GAP-G1: No memory fallback. Must use Firestore in production.
         self._firestore_repo: Optional[FirestoreFeatureFlagRepository] = None
+        self._memory_repo: Optional[InMemoryFeatureFlagRepository] = None
         self._backend = (backend or os.getenv(FEATURE_FLAGS_BACKEND_ENV, "")).lower()
 
-        if self._backend == "firestore" or not self._backend:
-            # Default and only allowed in production: firestore
-            try:
-                self._firestore_repo = FirestoreFeatureFlagRepository(client=firestore_client)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to initialize Firestore feature flags backend: {e}. "
-                    f"Set FEATURE_FLAGS_BACKEND=firestore and ensure GCP credentials are available."
-                ) from e
+        # The original code had a try/except block for Firestore initialization.
+        # The instruction removes it, so we'll follow the instruction.
+        if self._backend == "firestore":
+            self._firestore_repo = FirestoreFeatureFlagRepository(client=firestore_client)
+        elif self._backend == "memory":
+            self._memory_repo = InMemoryFeatureFlagRepository()
+        elif not self._backend:
+             raise RuntimeError(
+                "FEATURE_FLAGS_BACKEND not set. "
+                "Set FEATURE_FLAGS_BACKEND=firestore and ensure GCP credentials are available."
+            )
         else:
             raise RuntimeError(
                 f"Unsupported FEATURE_FLAGS_BACKEND={self._backend}. "
-                f"Only 'firestore' is allowed in production."
+                "Only 'firestore' is allowed in production."
             )
 
     def get_flags(self, tenant_id: str, env: str) -> Optional[FeatureFlags]:
-        # All reads go through Firestore (no in-memory fallback)
+        if self._memory_repo:
+            return self._memory_repo.get_flags(tenant_id, env)
         return self._firestore_repo.get_flags(tenant_id, env) if self._firestore_repo else None
 
     def set_flags(self, flags: FeatureFlags) -> FeatureFlags:
-        # All writes go through Firestore
+        if self._memory_repo:
+            return self._memory_repo.set_flags(flags)
         if self._firestore_repo:
             self._firestore_repo.set_flags(flags)
         return flags
 
     def delete_flags(self, tenant_id: str, env: str) -> None:
+        if self._memory_repo:
+            return self._memory_repo.delete_flags(tenant_id, env)
         if self._firestore_repo:
             self._firestore_repo.delete_flags(tenant_id, env)
 
