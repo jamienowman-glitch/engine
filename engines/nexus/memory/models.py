@@ -27,7 +27,8 @@ class SessionSnapshot(BaseModel):
     """
     session_id: str
     tenant_id: str
-    env: str
+    mode: str
+    project_id: str
     turns: List[SessionTurn] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
