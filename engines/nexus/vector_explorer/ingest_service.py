@@ -294,6 +294,10 @@ class VectorIngestService:
                         tokens_input=tokens,
                         tokens_output=0,
                         cost=0,
+                        request_id=context.request_id,
+                        trace_id=context.request_id,
+                        run_id=context.request_id,
+                        step_id="vector_ingest.embedding",
                     )
                 ],
             )
