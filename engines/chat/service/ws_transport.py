@@ -258,8 +258,10 @@ async def websocket_endpoint(
             request_id=request_context.request_id,
             trace_id=request_context.request_id,
         )
-        import anyio
-        anyio.from_thread.run(manager.broadcast_event, thread_id, event)
+        # import anyio
+        # anyio.from_thread.run(manager.broadcast_event, thread_id, event)
+        loop = asyncio.get_running_loop()
+        loop.create_task(manager.broadcast_event(thread_id, event))
 
     sub_id = bus.subscribe(thread_id, subscriber)
 
