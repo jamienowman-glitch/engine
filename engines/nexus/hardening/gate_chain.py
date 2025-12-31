@@ -15,6 +15,17 @@ from engines.kpi.service import KpiService, get_kpi_service
 from engines.logging.audit import emit_audit_event
 from engines.strategy_lock.service import StrategyLockService, get_strategy_lock_service
 from engines.temperature.service import TemperatureService, get_temperature_service
+from engines.realtime.contracts import (
+    EventIds,
+    StreamEvent,
+    RoutingKeys,
+    ActorType,
+    EventPriority,
+    PersistPolicy,
+    EventMeta,
+)
+from engines.realtime.timeline import get_timeline_store
+from engines.logging.events.contract import EventSeverity
 
 
 class GateChain:
@@ -49,19 +60,134 @@ class GateChain:
         skip_metrics: bool = False,
     ) -> None:
         surface_key = surface or "nexus"
-        self.kill_switch.ensure_action_allowed(ctx, action)
+        gate_blocked = None
+        reason_code = None
+        
+        try:
+            self.kill_switch.ensure_action_allowed(ctx, action)
+        except HTTPException as exc:
+            gate_blocked = "kill_switch"
+            reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
+            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+            raise
 
-        if action in DANGEROUS_ACTIONS:
-            self.firearms.require_licence_or_raise(ctx, subject_type or "unknown", subject_id or action, action)
+        try:
+            if action in DANGEROUS_ACTIONS:
+                self.firearms.require_licence_or_raise(ctx, subject_type or "unknown", subject_id or action, action)
+        except HTTPException as exc:
+            gate_blocked = "firearms"
+            reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
+            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+            raise
 
-        self.strategy_lock.require_strategy_lock_or_raise(ctx, surface_key, action)
+        try:
+            self.strategy_lock.require_strategy_lock_or_raise(ctx, surface_key, action)
+        except HTTPException as exc:
+            gate_blocked = "strategy_lock"
+            reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
+            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+            raise
 
         if not skip_metrics:
-            self._enforce_budget(ctx, surface_key, action)
-            self._enforce_kpi(ctx, surface_key, action)
-            self._enforce_temperature(ctx, surface_key, action)
+            try:
+                self._enforce_budget(ctx, surface_key, action)
+            except HTTPException as exc:
+                gate_blocked = "budget"
+                reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
+                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+                raise
+            
+            try:
+                self._enforce_kpi(ctx, surface_key, action)
+            except HTTPException as exc:
+                gate_blocked = "kpi"
+                reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
+                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+                raise
+            
+            try:
+                self._enforce_temperature(ctx, surface_key, action)
+            except HTTPException as exc:
+                gate_blocked = "temperature"
+                reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
+                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+                raise
 
+        # All gates passed - emit SAFETY_DECISION PASS
+        self._emit_safety_decision(ctx, action, subject_type, subject_id, "PASS", "passed", "all_gates")
         self._emit_audit(ctx, action, surface_key, subject_type, subject_id, skip_metrics)
+
+    def _emit_safety_decision(
+        self,
+        ctx: RequestContext,
+        action: str,
+        subject_type: Optional[str],
+        subject_id: Optional[str],
+        result: str,  # PASS or BLOCK
+        reason: str,
+        gate: str,
+    ) -> None:
+        """Emit a SAFETY_DECISION event to the timeline."""
+        if not subject_id:
+            return  # Cannot emit to timeline without a stream ID
+        
+        # Determine the stream_id based on subject_type
+        stream_id = subject_id  # For chat: thread_id, for canvas: canvas_id
+        
+        # Build the SAFETY_DECISION event
+        safety_event = StreamEvent(
+            type="SAFETY_DECISION",
+            routing=RoutingKeys(
+                tenant_id=ctx.tenant_id,
+                mode=ctx.mode,
+                env=ctx.env,
+                project_id=ctx.project_id,
+                surface_id=ctx.surface_id,
+                thread_id=stream_id if subject_type == "thread" else None,
+                canvas_id=stream_id if subject_type == "canvas" else None,
+                actor_id="system",
+                actor_type=ActorType.SYSTEM,
+            ),
+            ids=EventIds(
+                request_id=ctx.request_id,
+                run_id=stream_id,
+                step_id="safety_decision",
+            ),
+            trace_id=ctx.request_id,
+            data={
+                "action": action,
+                "result": result,
+                "reason": reason,
+                "gate": gate,
+            },
+            meta=EventMeta(
+                priority=EventPriority.TRUTH,
+                persist=PersistPolicy.ALWAYS,
+                severity=EventSeverity.WARNING if result == "BLOCK" else EventSeverity.INFO,
+            ),
+        )
+        
+        try:
+            timeline = get_timeline_store()
+            timeline.append(stream_id, safety_event, ctx)
+        except Exception:
+            # Silently fail if timeline is unavailable; don't block user request
+            pass
+        
+        # Also emit to audit log
+        self._audit_logger(
+            ctx,
+            action="safety_decision",
+            surface="gate_chain",
+            metadata={
+                "gate_action": action,
+                "gate": gate,
+                "result": result,
+                "reason": reason,
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+            },
+        )
 
     def _enforce_budget(self, ctx: RequestContext, surface: str, action: str) -> None:
         policy = self._budget_policy_repo.get_policy(

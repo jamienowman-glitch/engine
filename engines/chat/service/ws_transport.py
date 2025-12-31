@@ -35,6 +35,7 @@ from engines.realtime.contracts import (
 )
 from engines.realtime.timeline import get_timeline_store
 from engines.realtime.isolation import verify_thread_access
+from engines.nexus.hardening.gate_chain import get_gate_chain
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -275,6 +276,23 @@ async def websocket_endpoint(
                 sender = Contact(id=user_id)
                 text = data.get("text", "")
                 if text:
+                    # Lane 2: Call GateChain before processing message
+                    try:
+                        gate_chain = get_gate_chain()
+                        gate_chain.run(
+                            ctx=request_context,
+                            action="chat_send",
+                            surface=request_context.surface_id or "chat",
+                            subject_type="thread",
+                            subject_id=thread_id,
+                        )
+                    except HTTPException as exc:
+                        # Lane 3: Close socket on gate block with reason code
+                        error_detail = exc.detail if isinstance(exc.detail, dict) else {"error": str(exc.detail)}
+                        reason_code = error_detail.get("error", "gate_blocked")
+                        await websocket.close(code=4003, reason=reason_code)
+                        return
+                    
                     await process_message(thread_id, sender, text, context=request_context)
 
             elif msg_type == "gesture":

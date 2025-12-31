@@ -8,6 +8,8 @@ from engines.chat.contracts import Message, Contact
 from engines.canvas_stream.models import GestureEvent
 from engines.feature_flags.service import get_feature_flags
 from engines.common.identity import RequestContext
+from engines.nexus.hardening.gate_chain import get_gate_chain
+from fastapi import HTTPException
 
 # Reusing In-Memory Bus for Phase 02 as planned.
 # Canvas streams are effectively threads with specific ID patterns.
@@ -24,6 +26,19 @@ async def publish_gesture(
     # L1-T3: Auto-register canvas
     from engines.realtime.isolation import register_canvas_resource
     register_canvas_resource(context.tenant_id, canvas_id)
+
+    # Lane 2: Call GateChain before publishing
+    try:
+        gate_chain = get_gate_chain()
+        gate_chain.run(
+            ctx=context,
+            action="canvas_gesture",
+            surface=context.surface_id or "canvas",
+            subject_type="canvas",
+            subject_id=canvas_id,
+        )
+    except HTTPException as exc:
+        raise exc
 
     flags = await get_feature_flags(context.tenant_id, context.env)
     
@@ -69,6 +84,19 @@ def publish_canvas_event(canvas_id: str, event_type: str, data: dict, actor_id: 
     # L1-T3: Auto-register canvas
     from engines.realtime.isolation import register_canvas_resource
     register_canvas_resource(context.tenant_id, canvas_id)
+
+    # Lane 2: Call GateChain before publishing
+    try:
+        gate_chain = get_gate_chain()
+        gate_chain.run(
+            ctx=context,
+            action="canvas_command",
+            surface=context.surface_id or "canvas",
+            subject_type="canvas",
+            subject_id=canvas_id,
+        )
+    except HTTPException as exc:
+        raise exc
 
     import json
     payload = json.dumps({"type": event_type, "data": data})

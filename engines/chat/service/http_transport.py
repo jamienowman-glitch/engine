@@ -1,7 +1,7 @@
 """HTTP transport wired to chat pipeline."""
 from __future__ import annotations
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 
 from engines.chat.contracts import Contact, ChatScope
@@ -9,6 +9,7 @@ from engines.chat.pipeline import process_message
 from engines.chat.service.transport_layer import bus
 from engines.common.identity import RequestContext, get_request_context
 from engines.identity.auth import AuthContext, get_auth_context, require_tenant_membership
+from engines.nexus.hardening.gate_chain import get_gate_chain
 
 app = FastAPI(title="Chat HTTP Transport", version="0.2.0")
 
@@ -65,6 +66,20 @@ async def post_message(
     auth_context: AuthContext = Depends(get_auth_context),
 ):
     _ensure_tenant_membership(request_context, auth_context)
+    
+    # Lane 2: Call GateChain before processing message
+    try:
+        gate_chain = get_gate_chain()
+        gate_chain.run(
+            ctx=request_context,
+            action="chat_send",
+            surface=request_context.surface_id or "chat",
+            subject_type="thread",
+            subject_id=thread_id,
+        )
+    except HTTPException as exc:
+        raise exc
+    
     msgs = await process_message(
         thread_id,
         payload.sender,
