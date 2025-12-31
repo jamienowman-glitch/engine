@@ -77,7 +77,13 @@ async def publish_gesture(
     return True
 
 def publish_canvas_event(canvas_id: str, event_type: str, data: dict, actor_id: str, context: RequestContext):
-    """Publish a canvas event (commit, gesture, etc)."""
+    """
+    Publish a canvas event (commit, gesture, etc).
+    
+    Lane 3: All canvas events are appended to the durable timeline via publish_message,
+    which allows them to be replayed after server restart when reconnecting with Last-Event-ID.
+    SAFETY_DECISION events are also appended to the same timeline stream.
+    """
     # Wrap in Message contract for bus compatibility or extend contract?
     # Keeping it simple: Text payload with structured JSON.
     
@@ -111,5 +117,13 @@ def publish_canvas_event(canvas_id: str, event_type: str, data: dict, actor_id: 
     )
 
 async def subscribe_canvas(canvas_id: str, request_context: RequestContext, last_event_id: str | None = None) -> AsyncGenerator[Message, None]:
+    """
+    Subscribe to canvas events with replay support.
+    
+    Lane 3: Canvas events and SAFETY_DECISION events are appended to the durable timeline
+    during publish_canvas_event and publish_gesture. When reconnecting with Last-Event-ID,
+    the timeline replays all prior canvas commands, gestures, and SAFETY_DECISION records.
+    This supports SSE and WebSocket replay after server restart.
+    """
     async for msg in subscribe_async(canvas_id, last_event_id, context=request_context):
         yield msg
