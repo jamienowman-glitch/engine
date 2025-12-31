@@ -91,64 +91,6 @@ class InMemoryRoutingRegistry:
         self._routes.pop(key, None)
 
 
-# ===== Filesystem Implementation =====
-
-import json
-from pathlib import Path
-
-class FilesystemRoutingRegistry:
-    """Filesystem-backed routing registry for local dev."""
-
-    def __init__(self, root: Optional[str] = None):
-        dir_path = root or os.getenv("ROUTING_REGISTRY_FS_DIR")
-        # Default to .northstar/data/routing_registry if not set
-        if not dir_path:
-             repo_root = Path(os.getcwd())
-             dir_path = repo_root / ".northstar" / "data" / "routing_registry"
-        
-        self._root = Path(dir_path)
-        self._root.mkdir(parents=True, exist_ok=True)
-
-    def _file_path(self, resource_kind: str, tenant_id: str, env: str, project_id: Optional[str]) -> Path:
-        # Sanitize filename
-        pid = project_id or "default"
-        name = f"{resource_kind}__{tenant_id}__{env}__{pid}.json"
-        return self._root / name
-
-    def upsert_route(self, route: ResourceRoute) -> ResourceRoute:
-        path = self._file_path(route.resource_kind, route.tenant_id, route.env, route.project_id)
-        with path.open("w", encoding="utf-8") as fh:
-            fh.write(route.model_dump_json(indent=2))
-        return route
-
-    def get_route(self, resource_kind: str, tenant_id: str, env: str, project_id: Optional[str] = None) -> Optional[ResourceRoute]:
-        path = self._file_path(resource_kind, tenant_id, env, project_id)
-        if not path.exists():
-            return None
-        with path.open("r", encoding="utf-8") as fh:
-            return ResourceRoute(**json.loads(fh.read()))
-
-    def list_routes(self, resource_kind: Optional[str] = None, tenant_id: Optional[str] = None) -> list[ResourceRoute]:
-        results = []
-        for path in self._root.glob("*.json"):
-             try:
-                 with path.open("r", encoding="utf-8") as fh:
-                     route = ResourceRoute(**json.loads(fh.read()))
-                     if resource_kind and route.resource_kind != resource_kind:
-                         continue
-                     if tenant_id and route.tenant_id != tenant_id:
-                         continue
-                     results.append(route)
-             except Exception:
-                 continue
-        return results
-
-    def delete_route(self, resource_kind: str, tenant_id: str, env: str, project_id: Optional[str] = None) -> None:
-        path = self._file_path(resource_kind, tenant_id, env, project_id)
-        if path.exists():
-            path.unlink()
-
-
 # ===== Firestore Implementation =====
 
 class FirestoreRoutingRegistry:
@@ -234,8 +176,6 @@ def routing_registry() -> RoutingRegistry:
         # Phase 0 closeout: fail-fast if no durable registry configured
         if backend == "firestore":
             _routing_registry = FirestoreRoutingRegistry()
-        elif backend == "filesystem":
-            _routing_registry = FilesystemRoutingRegistry()
         elif not backend:
             # InMemory only allowed if explicitly configured (tests)
             # Production requires explicit ROUTING_REGISTRY_BACKEND=firestore
