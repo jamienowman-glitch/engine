@@ -230,7 +230,7 @@ async def get_request_context(
                 if not user_id:
                     user_id = body_json.get("user_id")
                 if not header_mode:
-                    body_mode = body_json.get("mode") or body_json.get("env")
+                    body_mode = body_json.get("mode")
         except Exception:
             pass
 
