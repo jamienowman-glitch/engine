@@ -13,6 +13,9 @@ def _default_repo() -> IdentityRepository:
             return FirestoreIdentityRepository()
         except Exception as e:
             raise RuntimeError(f"Failed to initialize FirestoreIdentityRepository: {e}")
+    if backend == "memory" or backend == "filesystem":
+        # Local dev override
+        return InMemoryIdentityRepository()
     
     raise RuntimeError(f"IDENTITY_BACKEND must be 'firestore'. Got: '{backend}'")
 
