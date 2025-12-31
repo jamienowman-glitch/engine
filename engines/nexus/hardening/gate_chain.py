@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 from fastapi import HTTPException
 
+from engines.budget.repository import BudgetPolicyRepository, get_budget_policy_repo
 from engines.budget.service import BudgetService, get_budget_service
 from engines.common.identity import RequestContext
 from engines.firearms.service import DANGEROUS_ACTIONS, FirearmsService, get_firearms_service
@@ -14,33 +15,6 @@ from engines.kpi.service import KpiService, get_kpi_service
 from engines.logging.audit import emit_audit_event
 from engines.strategy_lock.service import StrategyLockService, get_strategy_lock_service
 from engines.temperature.service import TemperatureService, get_temperature_service
-
-
-BudgetThresholdResolver = Callable[[Optional[str]], Optional[Decimal]]
-
-
-def _normalize_surface(surface: Optional[str]) -> str:
-    if not surface:
-        return "DEFAULT"
-    cleaned = "".join(ch if ch.isalnum() else "_" for ch in surface.strip().upper())
-    return cleaned or "DEFAULT"
-
-
-def _build_budget_env(surface: Optional[str]) -> str:
-    normalized = _normalize_surface(surface)
-    return f"BUDGET_MAX_COST_{normalized}"
-
-
-def _default_budget_threshold(surface: Optional[str]) -> Optional[Decimal]:
-    candidates = [_build_budget_env(surface), "BUDGET_MAX_COST"]
-    for key in candidates:
-        value = os.getenv(key)
-        if value:
-            try:
-                return Decimal(value)
-            except InvalidOperation:
-                continue
-    return None
 
 
 class GateChain:
@@ -52,7 +26,7 @@ class GateChain:
         budget_service: Optional[BudgetService] = None,
         kpi_service: Optional[KpiService] = None,
         temperature_service: Optional[TemperatureService] = None,
-        budget_threshold_resolver: BudgetThresholdResolver = _default_budget_threshold,
+        budget_policy_repo: Optional[BudgetPolicyRepository] = None,
         audit_logger: Callable = emit_audit_event,
     ):
         self.kill_switch = kill_switch_service or get_kill_switch_service()
@@ -61,7 +35,7 @@ class GateChain:
         self.budget_service = budget_service or get_budget_service()
         self.kpi_service = kpi_service or get_kpi_service()
         self.temperature_service = temperature_service or get_temperature_service()
-        self._budget_threshold_resolver = budget_threshold_resolver
+        self._budget_policy_repo = budget_policy_repo or get_budget_policy_repo()
         self._audit_logger = audit_logger
 
     def run(
@@ -90,17 +64,22 @@ class GateChain:
         self._emit_audit(ctx, action, surface_key, subject_type, subject_id, skip_metrics)
 
     def _enforce_budget(self, ctx: RequestContext, surface: str, action: str) -> None:
-        threshold = self._budget_threshold_resolver(surface)
-        if threshold is None:
-            if os.environ.get("GATECHAIN_ALLOW_MISSING") == "1":
-                return
+        policy = self._budget_policy_repo.get_policy(
+            tenant_id=ctx.tenant_id,
+            env=ctx.env,
+            surface=surface,
+            mode=ctx.mode,
+            app=ctx.app_id,
+        )
+        if policy is None:
             raise HTTPException(
                 status_code=403,
                 detail={"error": "budget_threshold_missing", "surface": surface},
             )
 
+        summary_surface = policy.surface
         try:
-            summary = self.budget_service.summary(ctx, surface=surface)
+            summary = self.budget_service.summary(ctx, surface=summary_surface)
         except Exception as exc:
             raise HTTPException(status_code=403, detail={"error": "budget_unavailable", "reason": str(exc)})
 
@@ -110,14 +89,17 @@ class GateChain:
         except (InvalidOperation, TypeError):
             total = Decimal("0")
 
-        if total > threshold:
+        if total > policy.threshold:
             raise HTTPException(
                 status_code=403,
                 detail={
                     "error": "budget_threshold_exceeded",
                     "surface": surface,
+                    "policy_surface": policy.surface,
+                    "policy_mode": policy.mode,
+                    "policy_app": policy.app,
                     "total_cost": float(total),
-                    "threshold": float(threshold),
+                    "threshold": float(policy.threshold),
                     "action": action,
                 },
             )

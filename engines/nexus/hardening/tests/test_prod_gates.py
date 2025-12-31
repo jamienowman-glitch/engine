@@ -1,14 +1,16 @@
 """Tests for Phase 9 Production Gates."""
-import time
-from unittest import mock
-import pytest
-import os
-from fastapi import FastAPI, Depends, HTTPException
+from decimal import Decimal
+from types import SimpleNamespace
 
-from engines.common.identity import RequestContext, get_request_context
+import pytest
+from fastapi import HTTPException
+
+from engines.budget.repository import InMemoryBudgetPolicyRepository
+from engines.common.identity import RequestContext
 from engines.kill_switch.models import KillSwitch, KillSwitchUpdate
 from engines.kill_switch.service import KillSwitchService
 from engines.kill_switch.repository import InMemoryKillSwitchRepository
+from engines.nexus.hardening.gate_chain import GateChain
 from engines.nexus.hardening.rate_limit import RateLimitService
 
 # Mock Dependencies
@@ -74,23 +76,56 @@ def test_tenancy_isolation_in_limits():
         limiter.check_rate_limit(ctx1, "act", limit=1, window=10)
 
 
-def test_gate_chain_allows_missing_when_flagged():
-    from engines.nexus.hardening.gate_chain import GateChain
-    
-    # 1. Default (strict) behavior: Ensure flag is OFF even if passed in env
-    with mock.patch.dict(os.environ, {"GATECHAIN_ALLOW_MISSING": ""}):
-        gc = GateChain()
-        ctx = RequestContext(tenant_id="t_1", env="prod", user_id="u1")
-        
-        # Missing budget -> 403
-        with pytest.raises(HTTPException) as exc:
-            # Mocking budget service summary to work but resolver returns None by default for unknown surface
-            with mock.patch("engines.budget.service.BudgetService.summary"):
-                gc._enforce_budget(ctx, "unknown_surface", "act")
-        assert exc.value.status_code == 403
-    
-    # 2. With flag
-    with mock.patch.dict(os.environ, {"GATECHAIN_ALLOW_MISSING": "1"}):
-        with mock.patch("engines.budget.service.BudgetService.summary"):
-             # Should not raise
-            gc._enforce_budget(ctx, "unknown_surface", "act")
+def test_gate_chain_requires_budget_policy():
+    repo = InMemoryBudgetPolicyRepository()
+    gate_chain = GateChain(
+        kill_switch_service=_AllowAllKillSwitch(),
+        firearms_service=_AllowAllFirearms(),
+        strategy_lock_service=_AllowAllStrategyLock(),
+        budget_service=_StubBudgetService(),
+        kpi_service=_AvailableKpiService(),
+        temperature_service=_StableTemperatureService(),
+        budget_policy_repo=repo,
+    )
+    ctx = RequestContext(
+        tenant_id="t_gate",
+        env="prod",
+        user_id="u_gate",
+        mode="lab",
+        surface_id="cards",
+        app_id="card_app",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        gate_chain._enforce_budget(ctx, "cards", "act")
+    assert exc.value.detail["error"] == "budget_threshold_missing"
+
+
+class _AllowAllKillSwitch:
+    def ensure_action_allowed(self, *args, **kwargs):
+        return None
+
+
+class _AllowAllFirearms:
+    def require_licence_or_raise(self, *args, **kwargs):
+        return None
+
+
+class _AllowAllStrategyLock:
+    def require_strategy_lock_or_raise(self, *args, **kwargs):
+        return None
+
+
+class _StubBudgetService:
+    def summary(self, ctx, surface=None):
+        return {"total_cost": Decimal("0"), "total_events": 0, "grouped": {}}
+
+
+class _AvailableKpiService:
+    def list_corridors(self, ctx, surface):
+        return [object()]
+
+
+class _StableTemperatureService:
+    def compute_temperature(self, ctx, surface):
+        return SimpleNamespace(floors_breached=[], ceilings_breached=[])

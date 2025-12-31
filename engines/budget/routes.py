@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
-from engines.budget.models import UsageEvent
+from engines.budget.models import BudgetPolicy, UsageEvent
+from engines.budget.repository import get_budget_policy_repo
 from engines.budget.service import BudgetService, get_budget_service
 from engines.common.identity import RequestContext, assert_context_matches, get_request_context
 from engines.identity.auth import get_auth_context, require_tenant_membership
 
-router = APIRouter(prefix="/budget/usage", tags=["budget"])
+router = APIRouter(prefix="/budget", tags=["budget"])
 
 
-@router.post("")
+@router.post("/usage")
 def post_usage(
     payload: List[UsageEvent] | UsageEvent,
     context: RequestContext = Depends(get_request_context),
@@ -26,7 +29,7 @@ def post_usage(
     return {"items": svc.record_usage(context, events)}
 
 
-@router.get("")
+@router.get("/usage")
 def list_usage(
     surface: Optional[str] = None,
     provider: Optional[str] = None,
@@ -53,7 +56,7 @@ def list_usage(
     return {"items": items}
 
 
-@router.get("/summary")
+@router.get("/usage/summary")
 def usage_summary(
     surface: Optional[str] = None,
     window_days: int = Query(7, ge=1, le=90),
@@ -64,3 +67,52 @@ def usage_summary(
     require_tenant_membership(auth, context.tenant_id)
     svc = get_budget_service()
     return svc.summary(context, window_days=window_days, surface=surface, group_by=group_by)
+
+
+class BudgetPolicyPayload(BaseModel):
+    surface: Optional[str] = None
+    mode: Optional[str] = None
+    app: Optional[str] = None
+    threshold: Decimal
+
+
+@router.put("/policy")
+def upsert_policy(
+    payload: BudgetPolicyPayload,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
+    repo = get_budget_policy_repo()
+    policy = BudgetPolicy(
+        tenant_id=context.tenant_id,
+        env=context.env,
+        surface=payload.surface or context.surface_id,
+        mode=payload.mode or context.mode,
+        app=payload.app or context.app_id,
+        threshold=payload.threshold,
+    )
+    saved = repo.save_policy(policy)
+    return saved.model_dump()
+
+
+@router.get("/policy")
+def read_policy(
+    surface: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None),
+    app: Optional[str] = Query(None),
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
+    repo = get_budget_policy_repo()
+    policy = repo.get_policy(
+        tenant_id=context.tenant_id,
+        env=context.env,
+        surface=surface or context.surface_id,
+        mode=mode or context.mode,
+        app=app or context.app_id,
+    )
+    if not policy:
+        raise HTTPException(status_code=404, detail={"error": "budget_policy_not_found"})
+    return policy.model_dump()

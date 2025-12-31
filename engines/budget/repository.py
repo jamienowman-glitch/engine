@@ -4,10 +4,11 @@ import json
 import os
 import tempfile
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
-from engines.budget.models import UsageEvent
+from engines.budget.models import BudgetPolicy, UsageEvent
 
 
 class BudgetUsageRepository(Protocol):
@@ -278,6 +279,205 @@ class FirestoreBudgetUsageRepository(InMemoryBudgetUsageRepository):
                 agg["cost"] += ev.cost
                 agg["count"] += 1
         return {"total_cost": total_cost, "total_events": total_calls, "grouped": grouped}
+
+
+class BudgetPolicyRepository(Protocol):
+    def get_policy(
+        self,
+        tenant_id: str,
+        env: str,
+        mode: str,
+        surface: Optional[str] = None,
+        app: Optional[str] = None,
+    ) -> Optional[BudgetPolicy]: ...
+
+    def save_policy(self, policy: BudgetPolicy) -> BudgetPolicy: ...
+
+
+def _normalize_key(
+    tenant_id: str,
+    env: str,
+    mode: str,
+    surface: Optional[str],
+    app: Optional[str],
+) -> tuple[str, str, str, Optional[str], Optional[str]]:
+    normalized_mode = mode.lower()
+    return (tenant_id, env, normalized_mode, surface or None, app or None)
+
+
+class InMemoryBudgetPolicyRepository:
+    def __init__(self) -> None:
+        self._store: Dict[tuple[str, str, str, Optional[str], Optional[str]], BudgetPolicy] = {}
+
+    def _iter_candidates(
+        self,
+        tenant_id: str,
+        env: str,
+        mode: str,
+        surface: Optional[str],
+        app: Optional[str],
+    ) -> tuple[str, str, str, Optional[str], Optional[str]]:
+        normalized_surface = surface or None
+        normalized_app = app or None
+        mode_normalized = mode.lower()
+        for candidate_surface, candidate_app in (
+            (normalized_surface, normalized_app),
+            (normalized_surface, None),
+            (None, normalized_app),
+            (None, None),
+        ):
+            yield (tenant_id, env, mode_normalized, candidate_surface, candidate_app)
+
+    def get_policy(
+        self,
+        tenant_id: str,
+        env: str,
+        mode: str,
+        surface: Optional[str] = None,
+        app: Optional[str] = None,
+    ) -> Optional[BudgetPolicy]:
+        for key in self._iter_candidates(tenant_id, env, mode, surface, app):
+            policy = self._store.get(key)
+            if policy:
+                return policy
+        return None
+
+    def save_policy(self, policy: BudgetPolicy) -> BudgetPolicy:
+        key = _normalize_key(policy.tenant_id, policy.env, policy.mode, policy.surface, policy.app)
+        now = datetime.now(timezone.utc)
+        existing = self._store.get(key)
+        created = existing.created_at if existing else policy.created_at
+        stored = BudgetPolicy(
+            tenant_id=policy.tenant_id,
+            env=policy.env,
+            surface=policy.surface,
+            mode=policy.mode,
+            app=policy.app,
+            threshold=policy.threshold,
+            created_at=created,
+            updated_at=now,
+        )
+        self._store[key] = stored
+        return stored
+
+
+class FilesystemBudgetPolicyRepository(BudgetPolicyRepository):
+    def __init__(self, root: Optional[str] = None) -> None:
+        dir_path = root or os.getenv("BUDGET_POLICY_BACKEND_FS_DIR")
+        self._root = Path(dir_path or Path(tempfile.gettempdir()) / "budget_policies")
+        self._root.mkdir(parents=True, exist_ok=True)
+
+    def _file_path(self, tenant_id: str, env: str) -> Path:
+        name = f"{tenant_id}_{env}.policies.json"
+        return self._root / name
+
+    def _load_policies(self, tenant_id: str, env: str) -> List[BudgetPolicy]:
+        path = self._file_path(tenant_id, env)
+        if not path.exists():
+            return []
+        with path.open("r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        policies = []
+        for entry in raw:
+            policies.append(BudgetPolicy(**entry))
+        return policies
+
+    def _write_policies(self, tenant_id: str, env: str, policies: List[BudgetPolicy]) -> None:
+        path = self._file_path(tenant_id, env)
+        with path.open("w", encoding="utf-8") as fh:
+            json.dump([policy.model_dump() for policy in policies], fh, default=_json_default)
+
+    def _match(self, a: BudgetPolicy, b: BudgetPolicy) -> bool:
+        return (
+            a.surface == b.surface
+            and a.mode == b.mode
+            and a.app == b.app
+        )
+
+    def get_policy(
+        self,
+        tenant_id: str,
+        env: str,
+        mode: str,
+        surface: Optional[str] = None,
+        app: Optional[str] = None,
+    ) -> Optional[BudgetPolicy]:
+        candidates = InMemoryBudgetPolicyRepository()._iter_candidates(tenant_id, env, mode, surface, app)
+        policies = self._load_policies(tenant_id, env)
+        for key in candidates:
+            for policy in policies:
+                candidate_key = _normalize_key(policy.tenant_id, policy.env, policy.mode, policy.surface, policy.app)
+                if candidate_key == key:
+                    return policy
+        return None
+
+    def save_policy(self, policy: BudgetPolicy) -> BudgetPolicy:
+        policies = self._load_policies(policy.tenant_id, policy.env)
+        now = datetime.now(timezone.utc)
+        stored: Optional[BudgetPolicy] = None
+        for index, existing in enumerate(policies):
+            if self._match(existing, policy):
+                stored = BudgetPolicy(
+                    tenant_id=policy.tenant_id,
+                    env=policy.env,
+                    surface=policy.surface,
+                    mode=policy.mode,
+                    app=policy.app,
+                    threshold=policy.threshold,
+                    created_at=existing.created_at,
+                    updated_at=now,
+                )
+                policies[index] = stored
+                break
+        if stored is None:
+            stored = BudgetPolicy(
+                tenant_id=policy.tenant_id,
+                env=policy.env,
+                surface=policy.surface,
+                mode=policy.mode,
+                app=policy.app,
+                threshold=policy.threshold,
+                created_at=policy.created_at,
+                updated_at=now,
+            )
+            policies.append(stored)
+        self._write_policies(policy.tenant_id, policy.env, policies)
+        return stored
+
+
+def _json_default(value: object) -> str:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def budget_policy_repo_from_env() -> BudgetPolicyRepository:
+    backend = os.getenv("BUDGET_POLICY_BACKEND", "filesystem").lower()
+    if backend == "filesystem":
+        root = os.getenv("BUDGET_POLICY_BACKEND_FS_DIR")
+        return FilesystemBudgetPolicyRepository(root=root)
+    if backend == "inmemory":
+        return InMemoryBudgetPolicyRepository()
+    raise RuntimeError(
+        "BUDGET_POLICY_BACKEND must be set to a durable backend (filesystem|inmemory)"
+    )
+
+
+_default_policy_repo: Optional[BudgetPolicyRepository] = None
+
+
+def get_budget_policy_repo() -> BudgetPolicyRepository:
+    global _default_policy_repo
+    if _default_policy_repo is None:
+        _default_policy_repo = budget_policy_repo_from_env()
+    return _default_policy_repo
+
+
+def set_budget_policy_repo(repo: BudgetPolicyRepository) -> None:
+    global _default_policy_repo
+    _default_policy_repo = repo
 
 
 def budget_repo_from_env() -> BudgetUsageRepository:

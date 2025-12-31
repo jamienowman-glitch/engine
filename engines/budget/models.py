@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
+from engines.common.identity import VALID_TENANT_PATTERN
 from engines.logging.events.contract import (
     DEFAULT_DATASET_SCHEMA_VERSION,
     EventSeverity,
@@ -47,4 +48,32 @@ class UsageEvent(BaseModel):
         storage = values.get("storage_class")
         if storage != StorageClass.COST:
             raise ValueError("UsageEvent storage_class must be 'cost'")
+        return values
+
+
+class BudgetPolicy(BaseModel):
+    tenant_id: str
+    env: str
+    surface: Optional[str] = None
+    mode: str
+    app: Optional[str] = None
+    threshold: Decimal = Field(..., ge=Decimal("0"))
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+    @root_validator(pre=True)
+    def normalize_fields(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        tenant = values.get("tenant_id")
+        if not tenant:
+            raise ValueError("tenant_id is required")
+        if not VALID_TENANT_PATTERN.match(tenant):
+            raise ValueError("tenant_id must match pattern ^t_[a-z0-9_-]+$")
+        env_value = values.get("env")
+        if not env_value:
+            raise ValueError("env is required")
+        values["env"] = env_value.lower()
+        mode_value = values.get("mode")
+        if not mode_value:
+            raise ValueError("mode is required")
+        values["mode"] = mode_value.lower()
         return values
