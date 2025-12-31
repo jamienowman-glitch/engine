@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -177,12 +178,18 @@ async def subscribe_async(thread_id: str, last_event_id: str | None = None, cont
     replay_events = timeline.list_after(thread_id, after_event_id=last_event_id)
     for ev in replay_events:
         sender = Contact(id=ev.routing.actor_id)
+        text = ev.data.get("text")
+        if text is None:
+            try:
+                text = json.dumps(ev.data)
+            except Exception:
+                text = str(ev.data)
         msg = Message(
             id=ev.event_id,
             thread_id=thread_id,
             sender=sender,
-            text=ev.data.get("text", ""),
-            role=ev.data.get("role", "user"),
+            text=text,
+            role=ev.data.get("role", "system"),
         )
         queue.put_nowait(msg)
 

@@ -15,6 +15,7 @@ from engines.nexus.vector_explorer.routes import router as vector_explorer_route
 from engines.nexus.vector_explorer.ingest_routes import router as vector_ingest_router
 from engines.nexus.raw_storage.routes import router as raw_storage_router
 from engines.nexus.atoms.routes import router as atoms_router
+from engines.canvas_commands import router as canvas_commands_router
 from engines.nexus.cards.routes import router as cards_router
 from engines.nexus.index.routes import router as index_router
 from engines.nexus.packs.routes import router as pack_router
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
         app.include_router(settings_router)
         app.include_router(runs_router)
         app.include_router(nexus_memory_router)
+        app.include_router(canvas_commands_router)
         app.include_router(origin_snippets_router)
         # L1-T2 mounts
         from engines.canvas_stream.router import router as canvas_stream_router

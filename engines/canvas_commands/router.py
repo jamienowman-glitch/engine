@@ -23,7 +23,8 @@ async def post_command(
         result = await apply_command(
             tenant_id=request_context.tenant_id,
             user_id=auth_context.user_id,
-            command=cmd
+            command=cmd,
+            context=request_context,
         )
         return result
     except HTTPException as e:

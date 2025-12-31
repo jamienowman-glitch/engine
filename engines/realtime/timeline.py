@@ -79,7 +79,6 @@ class FirestoreTimelineStore:
         except Exception as exc:  # pragma: no cover
             logger.warning("Firestore timeline query failed: %s", exc)
             return events
-        started = after_event_id is None
         for snap in snaps:
             data = snap.to_dict() or {}
             try:
@@ -87,13 +86,13 @@ class FirestoreTimelineStore:
             except Exception as exc:  # pragma: no cover
                 logger.warning("Skipping invalid timeline event: %s", exc)
                 continue
-            if started:
-                events.append(ev)
-            elif ev.event_id == after_event_id:
-                started = True
-        if after_event_id and started and events:
-            events = events[1:]
-        return events
+            events.append(ev)
+        if not after_event_id:
+            return events
+        for idx, ev in enumerate(events):
+            if ev.event_id == after_event_id:
+                return events[idx + 1 :]
+        return []
 
 
 def _default_timeline_store() -> TimelineStore:

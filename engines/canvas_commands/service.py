@@ -1,15 +1,19 @@
 """Service for handling canvas commands with strict concurrency control."""
 from __future__ import annotations
 
+import json
 import logging
-import asyncio
+from datetime import datetime
 from typing import Dict, Optional, List, Set
 
 from fastapi import HTTPException
+
 from engines.canvas_commands.models import CommandEnvelope, RevisionResult
-from engines.realtime.contracts import StreamEvent, RoutingKeys, ActorType, EventPriority, PersistPolicy
-from engines.chat.service.transport_layer import bus
-from engines.realtime.isolation import verify_canvas_access
+from engines.chat.contracts import Contact, Message
+from engines.chat.service.transport_layer import bus, publish_message
+from engines.common.identity import RequestContext
+from engines.nexus.hardening.gate_chain import get_gate_chain
+from engines.realtime.isolation import register_canvas_resource, verify_canvas_access
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +41,28 @@ repo = CommandRepository()
 async def apply_command(
     tenant_id: str,
     user_id: str,
-    command: CommandEnvelope
+    command: CommandEnvelope,
+    context: Optional[RequestContext] = None,
 ) -> RevisionResult:
     """
     Apply a command to a canvas strictly checking base_rev.
     """
+    effective_tenant = context.tenant_id if context else tenant_id
+    if context:
+        register_canvas_resource(effective_tenant, command.canvas_id)
+
     # 1. Isolation Check
-    verify_canvas_access(tenant_id, command.canvas_id)
+    verify_canvas_access(effective_tenant, command.canvas_id)
+
+    if context:
+        gate_chain = get_gate_chain()
+        gate_chain.run(
+            ctx=context,
+            action="canvas_command",
+            surface=context.surface_id or "canvas",
+            subject_type="canvas",
+            subject_id=command.canvas_id,
+        )
     
     state = repo.get_state(command.canvas_id)
     
@@ -76,48 +95,6 @@ async def apply_command(
     new_rev = state.rev
     
     # 5. Emit Event (Truth)
-    # The command service is the source of truth for the event stream.
-    event = StreamEvent(
-        type="canvas_commit",
-        routing=RoutingKeys(
-            tenant_id=tenant_id,
-            env="dev", # derived or passed
-            canvas_id=command.canvas_id,
-            actor_id=user_id,
-            actor_type=ActorType.HUMAN
-        ),
-        data={
-            "cmd_id": command.id,
-            "type": command.type,
-            "args": command.args,
-            "rev": new_rev
-        }
-    )
-    
-    # Publish to bus so SSE transport picks it up
-    # Note: bus expects Message, subscriber in SSE/Router adapts it.
-    # This is "double wrapping" or we need to fix bus to support direct events.
-    # For now, we wrap in Message.text to match current Adapter pattern.
-    from engines.chat.contracts import Message, Contact
-    from datetime import datetime
-    
-    msg = Message(
-        id=event.event_id,
-        thread_id=command.canvas_id, # Bus topic
-        sender=Contact(id=user_id),
-        text=event.json(), # serialized StreamEvent or internal dict
-        role="system",
-        created_at=datetime.utcnow()
-    )
-    
-    # We put the "kind" in the payload so the Router knows it's a commit
-    # Ideally the router just forwards the StreamEvent if we serialize it here.
-    # But router.py logic currently tries to load JSON and look for "kind".
-    # If we put the WHOLE StreamEvent in text, the router might double-wrap it if not careful.
-    # Let's align with router.py: 
-    # Router says: content = json.loads(msg.text); kind = content.get("kind")
-    # So we should put valid content dict here.
-    
     final_payload = {
         "kind": "canvas_commit",
         "cmd_id": command.id,
@@ -125,18 +102,31 @@ async def apply_command(
         "rev": new_rev,
         "args": command.args
     }
-    msg.text = import_json().dumps(final_payload)
-    
-    # In-memory bus is synchronous
-    bus.add_message(command.canvas_id, msg)
+    event_id: Optional[str] = None
+    if context:
+        msg = publish_message(
+            command.canvas_id,
+            Contact(id=user_id),
+            json.dumps(final_payload),
+            role="system",
+            context=context,
+        )
+        event_id = msg.id
+    else:
+        msg = Message(
+            id=command.id,
+            thread_id=command.canvas_id, # Bus topic
+            sender=Contact(id=user_id),
+            text=json.dumps(final_payload),
+            role="system",
+            created_at=datetime.utcnow()
+        )
+        bus.add_message(command.canvas_id, msg)
+        event_id = msg.id
     
     return RevisionResult(
         status="applied",
         current_rev=new_rev,
         your_rev=new_rev,
-        event_id=event.event_id
+        event_id=event_id
     )
-
-def import_json():
-    import json
-    return json

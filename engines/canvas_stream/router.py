@@ -41,7 +41,10 @@ async def event_stream(
         # The content might be a "GestureEvent" dict or "Commit" dict.
         # We look for "kind" in content.
         
-        kind = content.get("type") or content.get("kind") or "canvas_commit"
+        kind = content.get("type") or content.get("kind")
+        if not kind and {"action", "result", "gate"}.issubset(content.keys()):
+            kind = "SAFETY_DECISION"
+        kind = kind or "canvas_commit"
         
         # Build strict StreamEvent
         event = StreamEvent(
