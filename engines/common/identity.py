@@ -51,6 +51,11 @@ class RequestContext:
     actor_id: Optional[str] = None
     canvas_id: Optional[str] = None
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    trace_id: Optional[str] = None
+    run_id: Optional[str] = None
+    step_id: Optional[str] = None
+    strategy_lock_id: Optional[str] = None
+    three_wise_id: Optional[str] = None
     mode: Optional[str] = None
     _raw_headers: Dict[str, Any] = field(default_factory=dict, init=False, repr=False)
     _mode_provided: bool = field(default=False, init=False, repr=False)
@@ -135,6 +140,11 @@ class RequestContextBuilder:
         app_id = normalized.get("x-app-id")
         user_id = normalized.get("x-user-id")
         membership_role = normalized.get("x-membership-role")
+        trace_id = normalized.get("x-trace-id")
+        run_id = normalized.get("x-run-id")
+        step_id = normalized.get("x-step-id")
+        strategy_lock_id = normalized.get("x-strategy-lock-id")
+        three_wise_id = normalized.get("x-three-wise-id")
 
         if jwt_payload:
             tenant_id = jwt_payload.get("tenant_id") or tenant_id
@@ -151,6 +161,11 @@ class RequestContextBuilder:
             user_id=user_id,
             actor_id=user_id,
             membership_role=membership_role,
+            trace_id=trace_id,
+            run_id=run_id,
+            step_id=step_id,
+            strategy_lock_id=strategy_lock_id,
+            three_wise_id=three_wise_id,
         )
         ctx._raw_headers = headers
         return ctx
@@ -173,6 +188,11 @@ async def get_request_context(
     query_surface: Optional[str] = Query(default=None, alias="surface_id"),
     query_app: Optional[str] = Query(default=None, alias="app_id"),
     query_user: Optional[str] = Query(default=None, alias="user_id"),
+    header_trace: Optional[str] = Header(default=None, alias="X-Trace-Id"),
+    header_run: Optional[str] = Header(default=None, alias="X-Run-Id"),
+    header_step: Optional[str] = Header(default=None, alias="X-Step-Id"),
+    header_strategy_lock: Optional[str] = Header(default=None, alias="X-Strategy-Lock-Id"),
+    header_three_wise: Optional[str] = Header(default=None, alias="X-Three-Wise-Id"),
 ) -> RequestContext:
     if header_env:
         raise HTTPException(
@@ -255,6 +275,16 @@ async def get_request_context(
         headers["X-User-Id"] = user_id
     if header_role:
         headers["X-Membership-Role"] = header_role
+    if header_trace:
+        headers["X-Trace-Id"] = header_trace
+    if header_run:
+        headers["X-Run-Id"] = header_run
+    if header_step:
+        headers["X-Step-Id"] = header_step
+    if header_strategy_lock:
+        headers["X-Strategy-Lock-Id"] = header_strategy_lock
+    if header_three_wise:
+        headers["X-Three-Wise-Id"] = header_three_wise
 
     if "X-Mode" not in headers:
         raise HTTPException(status_code=400, detail="X-Mode header is required")

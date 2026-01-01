@@ -150,10 +150,10 @@ class GateChain:
             ),
             ids=EventIds(
                 request_id=ctx.request_id,
-                run_id=stream_id,
-                step_id="safety_decision",
+                run_id=ctx.run_id or stream_id,
+                step_id=ctx.step_id or "safety_decision",
             ),
-            trace_id=ctx.request_id,
+            trace_id=ctx.trace_id or ctx.request_id,
             data={
                 "action": action,
                 "result": result,

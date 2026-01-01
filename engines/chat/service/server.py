@@ -38,6 +38,7 @@ from engines.video_mask import routes as video_mask_routes
 from engines.video_multicam import routes as video_multicam_routes
 from engines.video_visual_meta.routes import router as video_visual_meta_router
 from engines.audio_semantic_timeline.routes import router as audio_semantic_router
+from engines.actions.router import router as actions_router
 from engines.audio_voice_enhance.routes import router as audio_voice_enhance_router
 from engines.video_presets import routes as video_presets_routes
 from engines.video_text import routes as video_text_routes
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
         app.include_router(three_wise_router)
         app.include_router(firearms_router)
         app.include_router(memory_router)
+        app.include_router(actions_router)
         app.include_router(raw_storage_router)
         app.include_router(atoms_router)
         app.include_router(cards_router)
