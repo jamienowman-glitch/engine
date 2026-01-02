@@ -34,6 +34,8 @@ class RoutingControlPlaneService:
     def upsert_route(self, route: ResourceRoute, context: RequestContext) -> ResourceRoute:
         """Upsert a route with audit and stream event emission.
         
+        Lane 5: Detects backend type changes and records switch history.
+        
         Args:
             route: ResourceRoute to upsert
             context: RequestContext for audit/stream
@@ -41,6 +43,19 @@ class RoutingControlPlaneService:
         Returns:
             The upserted route
         """
+        # Get existing route to detect backend change
+        existing = self._registry.get_route(
+            route.resource_kind, 
+            route.tenant_id, 
+            route.env, 
+            route.project_id
+        )
+        
+        # If backend_type changed and no previous_backend_type set, record the switch time
+        is_backend_change = existing and existing.backend_type != route.backend_type
+        if is_backend_change and not route.last_switch_time:
+            route.last_switch_time = _utc_now()
+        
         # Upsert to registry
         created = self._registry.upsert_route(route)
         
@@ -55,14 +70,17 @@ class RoutingControlPlaneService:
                 "env": route.env,
                 "project_id": route.project_id,
                 "backend_type": route.backend_type,
+                "previous_backend_type": route.previous_backend_type,
+                "switch_rationale": route.switch_rationale,
             },
             output_data={"route_id": route.id},
         )
         
-        # Emit stream event (ROUTE_CHANGED)
+        # Emit stream event (ROUTE_CHANGED or ROUTE_BACKEND_SWITCHED)
+        event_type = "ROUTE_BACKEND_SWITCHED" if is_backend_change else "ROUTE_CHANGED"
         self._emit_route_event(
             context,
-            event_type="ROUTE_CHANGED",
+            event_type=event_type,
             route=created,
             action="upsert",
         )
@@ -118,7 +136,7 @@ class RoutingControlPlaneService:
         route: ResourceRoute,
         action: str,
     ) -> None:
-        """Emit a stream event for route changes."""
+        """Emit a stream event for route changes (Lane 5: includes switch history)."""
         try:
             actor_id = context.user_id or context.actor_id or "system"
             routing_keys = RoutingKeys(
@@ -132,6 +150,22 @@ class RoutingControlPlaneService:
                 actor_type=ActorType.HUMAN if context.user_id else ActorType.SYSTEM,
             )
             
+            # Lane 5: Include switch history in event data
+            event_data = {
+                "action": action,
+                "resource_kind": route.resource_kind,
+                "backend_type": route.backend_type,
+                "route_id": route.id,
+            }
+            
+            # Include switch history if available
+            if route.previous_backend_type:
+                event_data["previous_backend_type"] = route.previous_backend_type
+            if route.switch_rationale:
+                event_data["switch_rationale"] = route.switch_rationale
+            if route.last_switch_time:
+                event_data["last_switch_time"] = route.last_switch_time.isoformat()
+            
             event = StreamEvent(
                 type=event_type,
                 ts=_utc_now(),
@@ -143,9 +177,7 @@ class RoutingControlPlaneService:
                     run_id=context.run_id,
                     step_id=context.step_id,
                 ),
-                data={
-                    "action": action,
-                    "resource_kind": route.resource_kind,
+                data=event_data,
                     "backend_type": route.backend_type,
                     "route_id": route.id,
                 },

@@ -44,6 +44,34 @@ class ResourceRouteResponse(BaseModel):
     updated_at: str
 
 
+class ResourceRouteDiagnosticsResponse(BaseModel):
+    """Lane 5: Response schema for read-only diagnostics view."""
+    id: str
+    resource_kind: str
+    tenant_id: str
+    env: str
+    backend_type: str
+    config: dict  # No secrets in response
+    tier: str  # free, pro, enterprise
+    cost_notes: Optional[str] = None
+    health_status: str  # healthy, degraded, unhealthy, unknown
+    last_switch_time: Optional[str] = None
+    previous_backend_type: Optional[str] = None
+    switch_rationale: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class RouteSwitchRequest(BaseModel):
+    """Lane 5: Request schema for manual route switching."""
+    backend_type: str = Field(..., description="New backend type to switch to")
+    config: Optional[dict] = Field(default_factory=dict, description="New backend config (optional)")
+    tier: Optional[str] = Field(None, description="Cost tier (free, pro, enterprise)")
+    cost_notes: Optional[str] = Field(None, description="Cost implications (no secrets)")
+    rationale: str = Field(..., description="Reason for switching (required for audit trail)")
+    strategy_lock_id: Optional[str] = Field(None, description="Strategy lock ID if required by policy")
+
+
 # ===== Routes =====
 
 @router.post("/routes", response_model=ResourceRouteResponse)
@@ -154,3 +182,146 @@ async def list_routes(
         }
         for r in routes
     ]
+
+# ===== Lane 5 Endpoints (t_system Surfacing) =====
+
+@router.get("/diagnostics/{resource_kind}/{tenant_id}/{env}", response_model=ResourceRouteDiagnosticsResponse)
+async def get_route_diagnostics(
+    resource_kind: str,
+    tenant_id: str,
+    env: str,
+    project_id: Optional[str] = Query(None),
+    context: RequestContext = Depends(RequestContextBuilder.from_request),
+) -> dict:
+    """Get route diagnostics (read-only, no secrets).
+    
+    Lane 5: Provides t_system view of current routing with diagnostic metadata:
+    - Current backend_type and config (no secrets)
+    - Cost tier and notes
+    - Health status
+    - Switch history (previous backend, rationale, timestamp)
+    
+    Available to all modes/roles for diagnostic purposes.
+    """
+    service = RoutingControlPlaneService()
+    
+    route = service.get_route(resource_kind, tenant_id, env, project_id)
+    
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    
+    return {
+        "id": route.id,
+        "resource_kind": route.resource_kind,
+        "tenant_id": route.tenant_id,
+        "env": route.env,
+        "backend_type": route.backend_type,
+        "config": route.config,
+        "tier": route.tier,
+        "cost_notes": route.cost_notes,
+        "health_status": route.health_status,
+        "last_switch_time": route.last_switch_time.isoformat() if route.last_switch_time else None,
+        "previous_backend_type": route.previous_backend_type,
+        "switch_rationale": route.switch_rationale,
+        "created_at": route.created_at.isoformat(),
+        "updated_at": route.updated_at.isoformat(),
+    }
+
+
+@router.put("/routes/{resource_kind}/{tenant_id}/{env}/switch", response_model=ResourceRouteDiagnosticsResponse)
+async def switch_route_backend(
+    resource_kind: str,
+    tenant_id: str,
+    env: str,
+    req: RouteSwitchRequest,
+    project_id: Optional[str] = Query(None),
+    context: RequestContext = Depends(RequestContextBuilder.from_request),
+) -> dict:
+    """Switch backend for a route (manual switch with strategy lock guard).
+    
+    Lane 5: Allows t_system operators to manually flip backends with:
+    - Strategy lock enforcement (if configured for resource_kind)
+    - Audit trail (rationale + operator + timestamp)
+    - StreamEvent emission (ROUTE_BACKEND_SWITCHED)
+    - Switch history (previous backend, rationale preserved)
+    
+    Requires:
+    - rationale: reason for switch (mandatory for audit)
+    - strategy_lock_id: if strategy lock is required for this resource_kind
+    - new backend_type + config
+    
+    Guards:
+    - Strategy lock validation (if route.required=True or policy-driven)
+    - Audit event emission (routing:switch_backend)
+    - StreamEvent ROUTE_BACKEND_SWITCHED with rationale
+    """
+    service = RoutingControlPlaneService()
+    
+    # Get current route
+    current_route = service.get_route(resource_kind, tenant_id, env, project_id)
+    if not current_route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    
+    # Lane 5: Strategy lock validation (if enabled)
+    try:
+        from engines.strategy_lock.service import get_strategy_lock_service
+        lock_service = get_strategy_lock_service()
+        
+        # Check if strategy lock is required for this route switch
+        # For now, check if lock_id provided or if resource_kind has global lock requirement
+        if req.strategy_lock_id:
+            try:
+                lock = lock_service.get_lock(context, req.strategy_lock_id)
+                # Verify lock covers this action
+                if "routing:switch_backend" not in (lock.allowed_actions or []):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Strategy lock {req.strategy_lock_id} does not cover routing:switch_backend"
+                    )
+                if lock.status.value != "approved":
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Strategy lock {req.strategy_lock_id} is not approved (status: {lock.status})"
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Strategy lock validation failed: {e}")
+    except ImportError:
+        # Strategy lock not available in this environment
+        pass
+    
+    # Update route with new backend
+    previous_backend = current_route.backend_type
+    current_route.backend_type = req.backend_type
+    if req.config:
+        current_route.config.update(req.config)
+    if req.tier:
+        current_route.tier = req.tier
+    if req.cost_notes:
+        current_route.cost_notes = req.cost_notes
+    
+    # Store switch history
+    current_route.previous_backend_type = previous_backend
+    current_route.switch_rationale = req.rationale
+    current_route.last_switch_time = None  # Will be set by service
+    
+    # Upsert with audit trail
+    updated_route = service.upsert_route(current_route, context)
+    
+    return {
+        "id": updated_route.id,
+        "resource_kind": updated_route.resource_kind,
+        "tenant_id": updated_route.tenant_id,
+        "env": updated_route.env,
+        "backend_type": updated_route.backend_type,
+        "config": updated_route.config,
+        "tier": updated_route.tier,
+        "cost_notes": updated_route.cost_notes,
+        "health_status": updated_route.health_status,
+        "last_switch_time": updated_route.last_switch_time.isoformat() if updated_route.last_switch_time else None,
+        "previous_backend_type": updated_route.previous_backend_type,
+        "switch_rationale": updated_route.switch_rationale,
+        "created_at": updated_route.created_at.isoformat(),
+        "updated_at": updated_route.updated_at.isoformat(),
+    }

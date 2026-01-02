@@ -34,6 +34,14 @@ class ResourceRoute(BaseModel):
     config: backend-specific config dict (host, port, bucket, credentials, etc.)
     required: whether missing config should raise or allow fallback (should be True for prod)
     created_at, updated_at: timestamps
+    
+    Lane 5 Diagnostic Metadata:
+    - tier: free, pro, enterprise (cost category)
+    - cost_notes: brief description of cost implications
+    - health_status: healthy, degraded, unhealthy, unknown
+    - last_switch_time: when backend was last changed
+    - previous_backend_type: prior backend before last switch (for rollback info)
+    - switch_rationale: reason for last switch (for audit trail)
     """
     id: str
     resource_kind: str
@@ -46,6 +54,14 @@ class ResourceRoute(BaseModel):
     required: bool = True
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+    
+    # Lane 5: Diagnostic metadata (optional, defaults)
+    tier: str = Field(default="free", description="Cost tier: free, pro, enterprise")
+    cost_notes: Optional[str] = Field(None, description="Cost implications (no secrets)")
+    health_status: str = Field(default="unknown", description="healthy, degraded, unhealthy, unknown")
+    last_switch_time: Optional[datetime] = Field(None, description="When backend was last changed")
+    previous_backend_type: Optional[str] = Field(None, description="Prior backend for rollback context")
+    switch_rationale: Optional[str] = Field(None, description="Reason for last backend switch")
 
     def __init__(self, **data):
         # Normalize surface_id before storing
