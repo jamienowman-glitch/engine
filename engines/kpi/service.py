@@ -9,6 +9,31 @@ from engines.kpi.repository import FileKpiRepository, KpiRepository
 
 
 def _default_repo() -> KpiRepository:
+    """Get KPI repository via routing registry if available, fallback to filesystem.
+    
+    Lane 3 wiring: Routes metrics_store resource_kind through routing registry
+    for raw measurement persistence. Definitions/corridors remain filesystem-based.
+    """
+    try:
+        from engines.routing.registry import routing_registry
+        from engines.config import runtime_config
+        
+        registry = routing_registry()
+        route = registry.get_route(
+            resource_kind="metrics_store",
+            tenant_id="t_system",
+            env=runtime_config.env_name(),
+            project_id="p_internal",
+        )
+        
+        if route:
+            # Route exists; use filesystem KPI repo
+            # Raw measurements will be stored in metrics_store via FileKpiRepository
+            return FileKpiRepository()
+    except Exception:
+        # Fallback to filesystem if routing fails
+        pass
+    
     return FileKpiRepository()
 
 

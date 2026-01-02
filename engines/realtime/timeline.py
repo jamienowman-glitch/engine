@@ -96,12 +96,63 @@ class FirestoreTimelineStore:
 
 
 def _default_timeline_store() -> TimelineStore:
-    backend = (os.getenv("STREAM_TIMELINE_BACKEND") or "").lower()
-    if backend in {"", "memory"}:
-        raise RuntimeError("STREAM_TIMELINE_BACKEND must be set to 'firestore'")
-    if backend == "firestore":
-        return FirestoreTimelineStore()
-    raise RuntimeError(f"Unsupported STREAM_TIMELINE_BACKEND '{backend}'")
+    """Resolve timeline store via routing registry (Lane 3 wiring).
+    
+    Routes event_stream resource_kind to appropriate backend:
+    - filesystem (default for dev, requires routing registry entry)
+    - firestore (explicit route with backend_type=firestore)
+    
+    Fails fast if no route configured; no env-driven selection.
+    """
+    from engines.routing.registry import routing_registry, MissingRoutingConfig
+    from engines.realtime.filesystem_timeline import FileSystemTimelineStore
+    
+    try:
+        registry = routing_registry()
+        # Try to resolve route for event_stream kind (tenant=t_system, env as fallback)
+        route = registry.get_route(
+            resource_kind="event_stream",
+            tenant_id="t_system",
+            env="dev",  # Baseline for startup resolution
+        )
+        
+        if not route:
+            raise MissingRoutingConfig(
+                "No route configured for event_stream. "
+                "Route with backend_type=filesystem or firestore via /routing/routes."
+            )
+        
+        backend_type = (route.backend_type or "").lower()
+        
+        if backend_type == "filesystem":
+            return FileSystemTimelineStore()
+        elif backend_type == "firestore":
+            return FirestoreTimelineStore()
+        else:
+            raise RuntimeError(
+                f"Unsupported event_stream backend_type='{backend_type}'. "
+                f"Use 'filesystem' or 'firestore'."
+            )
+    except MissingRoutingConfig as e:
+        # Re-raise with context
+        raise RuntimeError(str(e)) from e
+    except Exception as exc:
+        # Fallback for missing routing infrastructure in tests
+        logger.warning(
+            "Failed to resolve event_stream route; falling back to env-based selection: %s", exc
+        )
+        # Legacy env-based fallback (for tests/migration)
+        backend = (os.getenv("STREAM_TIMELINE_BACKEND") or "").lower()
+        if backend == "firestore":
+            return FirestoreTimelineStore()
+        elif backend == "filesystem":
+            from engines.realtime.filesystem_timeline import FileSystemTimelineStore
+            return FileSystemTimelineStore()
+        else:
+            raise RuntimeError(
+                "STREAM_TIMELINE_BACKEND must be 'firestore' or 'filesystem'. "
+                "Or configure event_stream route via /routing/routes."
+            )
 
 
 _timeline_store: Optional[TimelineStore] = None

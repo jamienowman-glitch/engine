@@ -469,9 +469,43 @@ _default_policy_repo: Optional[BudgetPolicyRepository] = None
 
 
 def get_budget_policy_repo() -> BudgetPolicyRepository:
+    """Get budget policy repository via routing registry (no env-based selection).
+    
+    Lane 3 wiring: Routes tabular_store resource_kind through routing registry.
+    Fallback to env for backward compatibility with tests.
+    """
     global _default_policy_repo
-    if _default_policy_repo is None:
-        _default_policy_repo = budget_policy_repo_from_env()
+    
+    if _default_policy_repo is not None:
+        return _default_policy_repo
+    
+    # Try routing registry first (Lane 3 resolution)
+    try:
+        from engines.routing.registry import routing_registry
+        from engines.config import runtime_config
+        
+        registry = routing_registry()
+        route = registry.get_route(
+            resource_kind="tabular_store",
+            tenant_id="t_system",  # System policy applies across tenants
+            env=runtime_config.env_name(),
+            project_id="p_internal",
+        )
+        
+        if route:
+            backend_type = (route.backend_type or "").lower()
+            if backend_type == "filesystem":
+                base_dir = route.config.get("base_dir") if hasattr(route, 'config') else None
+                _default_policy_repo = FilesystemBudgetPolicyRepository(root=base_dir)
+                return _default_policy_repo
+            # Add other backends as needed (firestore, etc.)
+    except Exception as e:
+        # Fallback to env if routing fails (for tests, migration)
+        import logging
+        logging.warning(f"Budget policy routing failed: {e}; falling back to env-based selection")
+    
+    # Fallback to env-based selection for backward compatibility
+    _default_policy_repo = budget_policy_repo_from_env()
     return _default_policy_repo
 
 

@@ -14,20 +14,21 @@ from engines.identity.auth import AuthContext, get_auth_context
 from engines.nexus.hardening.auth import enforce_tenant_context
 from engines.nexus.hardening.gate_chain import GateChain, get_gate_chain
 from engines.nexus.raw_storage.models import RawAsset
-from engines.nexus.raw_storage.service import RawStorageService
+from engines.nexus.raw_storage.routing_service import ObjectStoreService
 
 router = APIRouter(prefix="/nexus/raw", tags=["nexus_raw_storage"])
 
 
-def get_service() -> RawStorageService:
-    return RawStorageService()
+def get_service() -> ObjectStoreService:
+    """Get ObjectStoreService with routing-based backend resolution."""
+    return ObjectStoreService()
 
 
 @router.post("/presign-upload")
 def presign_upload(
     filename: str = Body(..., embed=True),
     content_type: str = Body("application/octet-stream", embed=True),
-    service: RawStorageService = Depends(get_service),
+    service: ObjectStoreService = Depends(get_service),
     auth: AuthContext = Depends(get_auth_context),
     ctx: RequestContext = Depends(get_request_context),
     gate_chain: GateChain = Depends(get_gate_chain),
@@ -41,7 +42,7 @@ def presign_upload(
 @router.post("/register", response_model=RawAsset)
 def register_asset(
     asset: RawAsset,
-    service: RawStorageService = Depends(get_service),
+    service: ObjectStoreService = Depends(get_service),
     auth: AuthContext = Depends(get_auth_context),
     ctx: RequestContext = Depends(get_request_context),
     gate_chain: GateChain = Depends(get_gate_chain),
