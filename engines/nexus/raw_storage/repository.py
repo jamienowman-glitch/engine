@@ -106,6 +106,74 @@ class S3RawStorageRepository:
         # This is a no-op placeholder for Lane 2 transparency
         pass
 
+    def put_object(
+        self, 
+        key: str, 
+        content: bytes, 
+        tenant_id: str = "t_system",
+        env: str = "dev",
+    ) -> str:
+        """Store a blob to S3 and return its URI.
+        
+        Direct PUT operation (not presigned). Requires AWS credentials.
+        Args:
+            key: object key (may include / for nested paths)
+            content: binary blob
+            tenant_id: tenant ID for path validation
+            env: environment for path validation
+        
+        Returns:
+            S3 URI (s3://bucket/key)
+        """
+        self._validate_tenant(tenant_id)
+        self._validate_env(env)
+        
+        bucket = self._get_bucket()
+        # For direct put, allow more flexible key structure
+        full_key = f"tenants/{tenant_id}/{env}/raw/{key}"
+        
+        s3 = boto3.client("s3")
+        try:
+            s3.put_object(
+                Bucket=bucket,
+                Key=full_key,
+                Body=content,
+            )
+            return f"s3://{bucket}/{full_key}"
+        except ClientError as e:
+            raise HTTPException(status_code=500, detail=f"S3 PUT failed: {e}")
+
+    def get_object(
+        self, 
+        key: str, 
+        tenant_id: str = "t_system",
+        env: str = "dev",
+    ) -> bytes | None:
+        """Retrieve a blob from S3.
+        
+        Args:
+            key: object key
+            tenant_id: tenant ID for path validation
+            env: environment for path validation
+        
+        Returns:
+            Binary blob, or None if not found
+        """
+        self._validate_tenant(tenant_id)
+        self._validate_env(env)
+        
+        bucket = self._get_bucket()
+        full_key = f"tenants/{tenant_id}/{env}/raw/{key}"
+        
+        s3 = boto3.client("s3")
+        try:
+            response = s3.get_object(Bucket=bucket, Key=full_key)
+            return response["Body"].read()
+        except s3.exceptions.NoSuchKey:
+            return None
+        except ClientError as e:
+            raise HTTPException(status_code=500, detail=f"S3 GET failed: {e}")
+
 
 class InMemoryRawStorageRepository:
     """In-memory storage for testing metadata persistence."""

@@ -45,10 +45,16 @@ class TabularStoreService:
             
             if backend_type == "filesystem":
                 return FileSystemTabularStore()
+            elif backend_type == "firestore":
+                # Lane 4: Firestore adapter placeholder (fail-fast NotImplementedError)
+                raise NotImplementedError(
+                    f"Firestore backend for tabular_store not yet implemented (Lane 4). "
+                    f"Use backend_type=filesystem for now."
+                )
             else:
                 raise RuntimeError(
                     f"Unsupported tabular_store backend_type='{backend_type}'. "
-                    f"Use 'filesystem'."
+                    f"Use 'filesystem' or 'firestore' (when implemented)."
                 )
         except MissingRoutingConfig as e:
             raise RuntimeError(str(e)) from e

@@ -21,6 +21,82 @@ from engines.routing.registry import MissingRoutingConfig, routing_registry
 logger = logging.getLogger(__name__)
 
 
+class S3ObjectStoreAdapter:
+    """Adapter wrapping S3RawStorageRepository to match ObjectStoreAdapter protocol.
+    
+    Converts S3RawStorageRepository (presigned POST focused) to ObjectStoreAdapter interface
+    (direct PUT/GET focused) for routing-based backend selection.
+    """
+    
+    def __init__(self, s3_repo, ctx: RequestContext):
+        """Initialize with S3 repository and request context for tenant/env."""
+        self.s3_repo = s3_repo
+        self.ctx = ctx
+    
+    def put_object(
+        self, 
+        key: str, 
+        content: bytes, 
+        context: RequestContext,
+    ) -> str:
+        """Store a blob to S3 and return its URI."""
+        return self.s3_repo.put_object(
+            key=key,
+            content=content,
+            tenant_id=context.tenant_id,
+            env=context.env
+        )
+    
+    def get_object(
+        self, 
+        key: str, 
+        context: RequestContext,
+    ) -> Optional[bytes]:
+        """Retrieve a blob from S3."""
+        return self.s3_repo.get_object(
+            key=key,
+            tenant_id=context.tenant_id,
+            env=context.env
+        )
+    
+    def delete_object(
+        self, 
+        key: str, 
+        context: RequestContext,
+    ) -> None:
+        """Delete a blob from S3 (not yet implemented)."""
+        # S3 delete_object not yet implemented in S3RawStorageRepository
+        # Fail-fast for now; can be added as needed
+        raise NotImplementedError("S3 delete_object not yet implemented for Lane 4")
+    
+    def list_objects(
+        self, 
+        prefix: str,
+        context: RequestContext,
+    ) -> list[str]:
+        """List blob keys in S3 (not yet implemented)."""
+        # S3 list_objects not yet implemented in S3RawStorageRepository
+        raise NotImplementedError("S3 list_objects not yet implemented for Lane 4")
+    
+    # Compatibility methods for RawStorageService interface
+    
+    def generate_presigned_post(
+        self, tenant_id: str, env: str, asset_id: str, filename: str, content_type: str
+    ) -> Tuple[str, Dict[str, str]]:
+        """Generate presigned POST URL for client-side upload."""
+        return self.s3_repo.generate_presigned_post(
+            tenant_id=tenant_id,
+            env=env,
+            asset_id=asset_id,
+            filename=filename,
+            content_type=content_type
+        )
+    
+    def get_uri(self, tenant_id: str, env: str, asset_id: str, filename: str) -> str:
+        """Construct S3 URI for asset."""
+        return self.s3_repo.get_uri(tenant_id, env, asset_id, filename)
+
+
 class ObjectStoreService:
     """Resolves and uses object storage via routing registry.
     
@@ -56,10 +132,11 @@ class ObjectStoreService:
             if backend_type == "filesystem":
                 return FileSystemObjectStore()
             elif backend_type == "s3":
-                # Import S3 adapter if available; for now, use S3RawStorageRepository
+                # Wrap S3RawStorageRepository to match ObjectStoreAdapter protocol
                 from engines.nexus.raw_storage.repository import S3RawStorageRepository
-                bucket = route.config.get("bucket")
-                return S3RawStorageRepository(bucket_name=bucket)
+                bucket = route.config.get("bucket") if route.config else None
+                s3_repo = S3RawStorageRepository(bucket_name=bucket)
+                return S3ObjectStoreAdapter(s3_repo, ctx)
             else:
                 raise RuntimeError(
                     f"Unsupported object_store backend_type='{backend_type}'. "
