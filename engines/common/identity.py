@@ -325,9 +325,14 @@ def assert_context_matches(
     """Ensure caller-supplied tenant/mode/project/surface/app match the resolved context."""
     if tenant_id and tenant_id != context.tenant_id:
         raise HTTPException(status_code=400, detail="tenant_id mismatch with request context")
-    expected_mode = mode or env
-    if expected_mode and expected_mode != context.mode:
+    normalized_mode: Optional[str] = mode if mode in VALID_MODES else None
+    normalized_env: Optional[str] = env
+    if not normalized_env and mode and mode not in VALID_MODES:
+        normalized_env = mode
+    if normalized_mode and normalized_mode != context.mode:
         raise HTTPException(status_code=400, detail="mode mismatch with request context")
+    if normalized_env and normalized_env != context.env:
+        raise HTTPException(status_code=400, detail="env mismatch with request context")
     if project_id and project_id != context.project_id:
         raise HTTPException(status_code=400, detail="project_id mismatch with request context")
     if surface_id and surface_id != context.surface_id:

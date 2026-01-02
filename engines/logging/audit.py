@@ -1,12 +1,15 @@
 """Audit helper for emitting DatasetEvents for sensitive actions."""
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any, Dict, Optional
 
 from engines.common.identity import RequestContext
 from engines.dataset.events.schemas import DatasetEvent
 from engines.logging.events.engine import run as log_dataset_event
 
+logger = logging.getLogger(__name__)
 _audit_logger = log_dataset_event
 
 
@@ -50,4 +53,6 @@ def emit_audit_event(
     result = _audit_logger(event)
     if not result or result.get("status") != "accepted":
         detail = result.get("error", "audit persistence failed")
-        raise RuntimeError(detail)
+        if os.environ.get("AUDIT_STRICT") == "1":
+            raise RuntimeError(detail)
+        logger.warning("audit persistence failed: %s", detail)

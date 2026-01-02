@@ -2,22 +2,19 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import HTTPException
-
 from engines.common.identity import RequestContext
-from engines.kpi.models import KpiCorridor, KpiDefinition
-from engines.kpi.repository import InMemoryKpiRepository, KpiRepository, FirestoreKpiRepository
-import os
+from engines.common.surface_normalizer import normalize_surface_id
+from engines.kpi.models import KpiCorridor, KpiDefinition, KpiRawMeasurement, SurfaceKpiSet
+from engines.kpi.repository import FileKpiRepository, KpiRepository
 
 
 def _default_repo() -> KpiRepository:
-    backend = os.getenv("KPI_BACKEND", "").lower()
-    if backend == "firestore":
-        try:
-            return FirestoreKpiRepository()
-        except Exception:
-            return InMemoryKpiRepository()
-    return InMemoryKpiRepository()
+    return FileKpiRepository()
+
+
+def _resolve_surface(surface: Optional[str], fallback: Optional[str] = None) -> Optional[str]:
+    candidate = surface or fallback
+    return normalize_surface_id(candidate)
 
 
 kpi_repo: KpiRepository = _default_repo()
@@ -30,21 +27,64 @@ class KpiService:
     def create_definition(self, ctx: RequestContext, payload: KpiDefinition) -> KpiDefinition:
         payload.tenant_id = ctx.tenant_id
         payload.env = ctx.env
+        payload.surface = _resolve_surface(payload.surface, ctx.surface_id)
         return self.repo.create_definition(payload)
 
     def list_definitions(self, ctx: RequestContext, surface: Optional[str]) -> List[KpiDefinition]:
-        return self.repo.list_definitions(ctx.tenant_id, ctx.env, surface=surface)
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        return self.repo.list_definitions(ctx.tenant_id, ctx.env, surface=surface_value)
 
     def upsert_corridor(self, ctx: RequestContext, payload: KpiCorridor) -> KpiCorridor:
         payload.tenant_id = ctx.tenant_id
         payload.env = ctx.env
+        payload.surface = _resolve_surface(payload.surface, ctx.surface_id)
         return self.repo.upsert_corridor(payload)
 
     def list_corridors(self, ctx: RequestContext, surface: Optional[str]) -> List[KpiCorridor]:
-        return self.repo.list_corridors(ctx.tenant_id, ctx.env, surface=surface)
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        return self.repo.list_corridors(ctx.tenant_id, ctx.env, surface=surface_value)
 
     def get_corridor_by_kpi(self, tenant_id: str, env: str, surface: Optional[str], kpi_name: str) -> Optional[KpiCorridor]:
-        return self.repo.get_corridor_by_kpi(tenant_id, env, surface, kpi_name)
+        surface_value = _resolve_surface(surface)
+        return self.repo.get_corridor_by_kpi(tenant_id, env, surface_value, kpi_name)
+
+    def upsert_surface_kpi_set(self, ctx: RequestContext, payload: SurfaceKpiSet) -> SurfaceKpiSet:
+        payload.tenant_id = ctx.tenant_id
+        payload.env = ctx.env
+        payload.surface = _resolve_surface(payload.surface, ctx.surface_id)
+        return self.repo.upsert_surface_kpi_set(payload)
+
+    def list_surface_kpi_sets(self, ctx: RequestContext, surface: Optional[str]) -> List[SurfaceKpiSet]:
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        return self.repo.list_surface_kpi_sets(ctx.tenant_id, ctx.env, surface=surface_value)
+
+    def get_surface_kpi_set(self, ctx: RequestContext, surface: str) -> Optional[SurfaceKpiSet]:
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        if surface_value is None:
+            return None
+        return self.repo.get_surface_kpi_set(ctx.tenant_id, ctx.env, surface_value)
+
+    def record_raw_measurement(self, ctx: RequestContext, payload: KpiRawMeasurement) -> KpiRawMeasurement:
+        payload.tenant_id = ctx.tenant_id
+        payload.env = ctx.env
+        payload.surface = _resolve_surface(payload.surface, ctx.surface_id)
+        return self.repo.record_raw_measurement(payload)
+
+    def list_raw_measurements(
+        self,
+        ctx: RequestContext,
+        surface: Optional[str] = None,
+        kpi_name: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[KpiRawMeasurement]:
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        return self.repo.list_raw_measurements(ctx.tenant_id, ctx.env, surface=surface_value, kpi_name=kpi_name, limit=limit)
+
+    def latest_raw_measurement(self, ctx: RequestContext, surface: str, kpi_name: str) -> Optional[KpiRawMeasurement]:
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        if surface_value is None:
+            return None
+        return self.repo.latest_raw_measurement(ctx.tenant_id, ctx.env, surface_value, kpi_name)
 
 
 _default_service: Optional[KpiService] = None

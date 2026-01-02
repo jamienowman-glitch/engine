@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from engines.common.identity import RequestContext
+from engines.common.surface_normalizer import normalize_surface_id
 from engines.budget.repository import InMemoryBudgetUsageRepository, BudgetUsageRepository
 from engines.kpi.service import get_kpi_service
 from engines.temperature.models import (
@@ -13,7 +14,12 @@ from engines.temperature.models import (
     TemperatureSnapshot,
     TemperatureWeights,
 )
-from engines.temperature.repository import InMemoryTemperatureRepository, TemperatureRepository
+from engines.temperature.repository import FileTemperatureRepository, InMemoryTemperatureRepository, TemperatureRepository
+
+
+def _resolve_surface(surface: Optional[str], fallback: Optional[str] = None) -> Optional[str]:
+    candidate = surface or fallback
+    return normalize_surface_id(candidate)
 
 
 class TemperatureMetricsAdapter:
@@ -65,35 +71,53 @@ class TemperatureService:
         usage_repo: Optional[BudgetUsageRepository] = None,
         metrics_adapter: Optional[TemperatureMetricsAdapter] = None,
     ) -> None:
-        self.repo = repo or InMemoryTemperatureRepository()
+        self.repo = repo or FileTemperatureRepository()
         self.usage_repo = usage_repo or InMemoryBudgetUsageRepository()
         self.metrics_adapter = metrics_adapter or InMemoryMetricsAdapter(self.usage_repo)
 
     # Config management
     def upsert_floor(self, ctx: RequestContext, cfg: FloorConfig) -> FloorConfig:
+        resolved_surface = _resolve_surface(cfg.surface, ctx.surface_id)
+        if not resolved_surface:
+            raise ValueError("surface is required")
+        cfg.surface = resolved_surface
         cfg.tenant_id = ctx.tenant_id
         cfg.env = ctx.env
         return self.repo.upsert_floor(cfg)
 
     def upsert_ceiling(self, ctx: RequestContext, cfg: CeilingConfig) -> CeilingConfig:
+        resolved_surface = _resolve_surface(cfg.surface, ctx.surface_id)
+        if not resolved_surface:
+            raise ValueError("surface is required")
+        cfg.surface = resolved_surface
         cfg.tenant_id = ctx.tenant_id
         cfg.env = ctx.env
         return self.repo.upsert_ceiling(cfg)
 
     def upsert_weights(self, ctx: RequestContext, cfg: TemperatureWeights) -> TemperatureWeights:
+        resolved_surface = _resolve_surface(cfg.surface, ctx.surface_id)
+        if not resolved_surface:
+            raise ValueError("surface is required")
+        cfg.surface = resolved_surface
         cfg.tenant_id = ctx.tenant_id
         cfg.env = ctx.env
         return self.repo.upsert_weights(cfg)
 
     def get_config_bundle(self, ctx: RequestContext, surface: str) -> Dict[str, object]:
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        if not surface_value:
+            raise ValueError("surface is required")
         return {
-            "floors": self.repo.get_floor(ctx.tenant_id, ctx.env, surface),
-            "ceilings": self.repo.get_ceiling(ctx.tenant_id, ctx.env, surface),
-            "weights": self.repo.get_weights(ctx.tenant_id, ctx.env, surface),
+            "floors": self.repo.get_floor(ctx.tenant_id, ctx.env, surface_value),
+            "ceilings": self.repo.get_ceiling(ctx.tenant_id, ctx.env, surface_value),
+            "weights": self.repo.get_weights(ctx.tenant_id, ctx.env, surface_value),
         }
 
     def list_snapshots(self, ctx: RequestContext, surface: str, limit: int = 20, offset: int = 0) -> List[TemperatureSnapshot]:
-        return self.repo.list_snapshots(ctx.tenant_id, ctx.env, surface, limit=limit, offset=offset)
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        if not surface_value:
+            raise ValueError("surface is required")
+        return self.repo.list_snapshots(ctx.tenant_id, ctx.env, surface_value, limit=limit, offset=offset)
 
     # Temperature computation
     def compute_temperature(
@@ -104,10 +128,13 @@ class TemperatureService:
         metrics: Optional[Dict[str, float]] = None,
     ) -> TemperatureSnapshot:
         """Compute deterministic temperature from floors/ceilings/weights."""
-        floor_cfg = self.repo.get_floor(ctx.tenant_id, ctx.env, surface)
-        ceiling_cfg = self.repo.get_ceiling(ctx.tenant_id, ctx.env, surface)
-        weights_cfg = self.repo.get_weights(ctx.tenant_id, ctx.env, surface) or TemperatureWeights(
-            tenant_id=ctx.tenant_id, env=ctx.env, surface=surface, weights={}
+        surface_value = _resolve_surface(surface, ctx.surface_id)
+        if not surface_value:
+            raise ValueError("surface is required")
+        floor_cfg = self.repo.get_floor(ctx.tenant_id, ctx.env, surface_value)
+        ceiling_cfg = self.repo.get_ceiling(ctx.tenant_id, ctx.env, surface_value)
+        weights_cfg = self.repo.get_weights(ctx.tenant_id, ctx.env, surface_value) or TemperatureWeights(
+            tenant_id=ctx.tenant_id, env=ctx.env, surface=surface_value, weights={}
         )
 
         window_end = datetime.now(timezone.utc)
@@ -119,17 +146,17 @@ class TemperatureService:
             metric_keys.extend(list(floor_cfg.cadence_floors.keys()))
         if ceiling_cfg:
             metric_keys.extend(list(ceiling_cfg.ceilings.keys()))
-        raw_metrics = metrics or self._fetch_metrics(ctx, surface, window_start, window_end, metric_keys=metric_keys)
+        raw_metrics = metrics or self._fetch_metrics(ctx, surface_value, window_start, window_end, metric_keys=metric_keys)
         floors_breached = self._breaches(raw_metrics, floor_cfg.performance_floors if floor_cfg else {})
         cadence_breaches = self._breaches(raw_metrics, floor_cfg.cadence_floors if floor_cfg else {})
         ceilings_breached = self._ceilings(raw_metrics, ceiling_cfg.ceilings if ceiling_cfg else {})
 
         score = self._aggregate(raw_metrics, weights_cfg.weights)
-        corridor_names = self._corridor_names(ctx, surface)
+        corridor_names = self._corridor_names(ctx, surface_value)
         snapshot = TemperatureSnapshot(
             tenant_id=ctx.tenant_id,
             env=ctx.env,
-            surface=surface,
+            surface=surface_value,
             value=score,
             window_start=window_start,
             window_end=window_end,

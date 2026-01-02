@@ -1,0 +1,70 @@
+{
+  "tenant_id": "t_demo",
+  "env": "dev",
+  "surface": "SQUARED²",
+  "entries": [
+    {
+      "name": "profit_after_costs",
+      "description": "Net sales after discounts/returns minus included costs before tax",
+      "window_token": "Rolling 7D",
+      "comparison_token": "YoY",
+      "estimate": false,
+      "missing_components": [],
+      "display_label": "Profit After Costs (Before Tax)",
+      "notes": "Include marketing, payment, and platform fees when available; mark ESTIMATE otherwise"
+    },
+    {
+      "name": "mer",
+      "description": "Media Efficiency Ratio = Net Sales / Total Marketing Spend",
+      "window_token": "Rolling 7D",
+      "comparison_token": "YoY",
+      "estimate": true,
+      "missing_components": ["marketing_spend"],
+      "display_label": "MER",
+      "notes": "Treat influencer spend as marketing_spend; mark missing components when spend not reported"
+    },
+    {
+      "name": "growth",
+      "description": "YoY change in Profit After Costs (Before Tax)",
+      "window_token": "Year-over-Year",
+      "comparison_token": "YoY",
+      "estimate": true,
+      "missing_components": [],
+      "display_label": "Growth",
+      "notes": "Fallback to YoY Net Sales when profit is ESTIMATE"
+    },
+    {
+      "name": "discount_rate",
+      "description": "Total Discounts ÷ Gross Sales (pre-discount, pre-tax)",
+      "window_token": "Rolling 7D",
+      "comparison_token": "YoY",
+      "estimate": false,
+      "missing_components": [],
+      "display_label": "Discount Rate",
+      "notes": "Include promos, markdowns, and bundle discounts"
+    },
+    {
+      "name": "returns_rate",
+      "description": "Confirmed returned units ÷ sold units",
+      "window_token": "Rolling 7D",
+      "comparison_token": "YoY",
+      "estimate": true,
+      "missing_components": ["returned_units"],
+      "display_label": "Returns Rate",
+      "notes": "Mark ESTIMATE until return confirmations available"
+    },
+    {
+      "name": "aoa",
+      "description": "90D unique reachable owned-channel audience",
+      "window_token": "Rolling 90D",
+      "comparison_token": "YoY",
+      "estimate": false,
+      "missing_components": [],
+      "display_label": "AOA",
+      "notes": "Include multichannel engagements (open/click/reply/react)"
+    }
+  ],
+  "metadata": {
+    "source": "phase_0.4_seed"
+  }
+}

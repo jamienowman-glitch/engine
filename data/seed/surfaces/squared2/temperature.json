@@ -1,0 +1,29 @@
+{
+  "tenant_id": "t_demo",
+  "env": "dev",
+  "surface": "SQUARED²",
+  "floors": {
+    "performance_floors": {
+      "weekly_leads": 5,
+      "net_sales": 10000
+    },
+    "cadence_floors": {
+      "email_campaigns_per_week": 1
+    }
+  },
+  "ceilings": {
+    "weekly_leads": 100,
+    "return_rate": 0.2
+  },
+  "weights": {
+    "weights": {
+      "weekly_leads": 1.0,
+      "aoa": 0.8,
+      "net_sales": 0.5
+    },
+    "source": "tenant_override"
+  },
+  "metadata": {
+    "source": "phase_0.4_temperature_seed"
+  }
+}

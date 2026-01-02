@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from engines.budget.repository import BudgetPolicyRepository, get_budget_policy_repo
 from engines.budget.service import BudgetService, get_budget_service
 from engines.common.identity import RequestContext
+from engines.common.surface_normalizer import normalize_surface_id
 from engines.firearms.service import DANGEROUS_ACTIONS, FirearmsService, get_firearms_service
 from engines.kill_switch.service import KillSwitchService, get_kill_switch_service
 from engines.kpi.service import KpiService, get_kpi_service
@@ -68,7 +69,8 @@ class GateChain:
         except HTTPException as exc:
             gate_blocked = "kill_switch"
             reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+            details = exc.detail if isinstance(exc.detail, dict) else None
+            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
             raise
 
         try:
@@ -77,7 +79,8 @@ class GateChain:
         except HTTPException as exc:
             gate_blocked = "firearms"
             reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+            details = exc.detail if isinstance(exc.detail, dict) else None
+            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
             raise
 
         try:
@@ -85,7 +88,8 @@ class GateChain:
         except HTTPException as exc:
             gate_blocked = "strategy_lock"
             reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+            details = exc.detail if isinstance(exc.detail, dict) else None
+            self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
             raise
 
         if not skip_metrics:
@@ -94,7 +98,8 @@ class GateChain:
             except HTTPException as exc:
                 gate_blocked = "budget"
                 reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+                details = exc.detail if isinstance(exc.detail, dict) else None
+                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
                 raise
             
             try:
@@ -102,7 +107,8 @@ class GateChain:
             except HTTPException as exc:
                 gate_blocked = "kpi"
                 reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+                details = exc.detail if isinstance(exc.detail, dict) else None
+                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
                 raise
             
             try:
@@ -110,7 +116,8 @@ class GateChain:
             except HTTPException as exc:
                 gate_blocked = "temperature"
                 reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked)
+                details = exc.detail if isinstance(exc.detail, dict) else None
+                self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
                 raise
 
         # All gates passed - emit SAFETY_DECISION PASS
@@ -126,6 +133,7 @@ class GateChain:
         result: str,  # PASS or BLOCK
         reason: str,
         gate: str,
+        details: Optional[dict] = None,
     ) -> None:
         """Emit a SAFETY_DECISION event to the timeline."""
         if not subject_id:
@@ -166,6 +174,8 @@ class GateChain:
                 severity=EventSeverity.WARNING if result == "BLOCK" else EventSeverity.INFO,
             ),
         )
+        if details:
+            safety_event.data["details"] = details
         
         try:
             timeline = get_timeline_store()
@@ -175,18 +185,21 @@ class GateChain:
             pass
         
         # Also emit to audit log
+        metadata = {
+            "gate_action": action,
+            "gate": gate,
+            "result": result,
+            "reason": reason,
+            "subject_type": subject_type,
+            "subject_id": subject_id,
+        }
+        if details:
+            metadata["details"] = details
         self._audit_logger(
             ctx,
             action="safety_decision",
             surface="gate_chain",
-            metadata={
-                "gate_action": action,
-                "gate": gate,
-                "result": result,
-                "reason": reason,
-                "subject_type": subject_type,
-                "subject_id": subject_id,
-            },
+            metadata=metadata,
         )
 
     def _enforce_budget(self, ctx: RequestContext, surface: str, action: str) -> None:
@@ -243,6 +256,39 @@ class GateChain:
                 status_code=403,
                 detail={"error": "kpi_threshold_missing", "surface": surface, "action": action},
             )
+
+        surface_value = normalize_surface_id(surface) if surface else surface
+        for corridor in corridors:
+            target_surface = surface_value or surface
+            if not target_surface:
+                target_surface = surface or "nexus"
+            measurement = self.kpi_service.latest_raw_measurement(ctx, target_surface, corridor.kpi_name)
+            if measurement is None:
+                continue
+            if corridor.floor is not None and measurement.value < corridor.floor:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "kpi_floor_breached",
+                        "surface": target_surface,
+                        "kpi_name": corridor.kpi_name,
+                        "value": measurement.value,
+                        "floor": corridor.floor,
+                        "action": action,
+                    },
+                )
+            if corridor.ceiling is not None and measurement.value > corridor.ceiling:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "kpi_ceiling_breached",
+                        "surface": target_surface,
+                        "kpi_name": corridor.kpi_name,
+                        "value": measurement.value,
+                        "ceiling": corridor.ceiling,
+                        "action": action,
+                    },
+                )
 
     def _enforce_temperature(self, ctx: RequestContext, surface: str, action: str) -> None:
         try:
