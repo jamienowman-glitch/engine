@@ -1,10 +1,12 @@
-"""Object store service with routing-based backend resolution (Lane 3 wiring).
+"""Object store service with routing-based backend resolution (Builder C).
 
 Routes object_store resource_kind through routing registry to appropriate adapter:
-- filesystem (default for dev, requires routing entry)
-- s3 (requires AWS credentials + routing entry)
+- filesystem (lab-only, guard enforced)
+- s3 (from Lane 4, AWS credentials)
+- azure_blob (Builder C, Azure credentials)
+- gcs (Builder C, GCP credentials)
 
-Maintains compatibility with existing RawStorageService interface for presigning/registration.
+All support tenant/project namespacing: tenants/{tenant}/{env}/raw/{key}
 """
 from __future__ import annotations
 
@@ -16,6 +18,10 @@ from engines.common.identity import RequestContext
 from engines.logging.event_log import EventLogEntry, default_event_logger
 from engines.nexus.raw_storage.filesystem_adapter import FileSystemObjectStore
 from engines.nexus.raw_storage.models import RawAsset
+from engines.nexus.raw_storage.cloud_adapters import (
+    AzureBlobStorageAdapter,
+    GCSObjectStoreAdapter,
+)
 from engines.routing.registry import MissingRoutingConfig, routing_registry
 
 logger = logging.getLogger(__name__)
@@ -100,18 +106,12 @@ class S3ObjectStoreAdapter:
 class ObjectStoreService:
     """Resolves and uses object storage via routing registry.
     
-    Provides unified interface compatible with RawStorageService:
-    - presign_upload() for S3 presigned URLs
-    - register_asset() for metadata persistence
-    
-    Also provides low-level methods:
-    - put(key, content, ctx) for direct storage
-    - get(key, ctx) for retrieval
-    - delete(key, ctx) for deletion
+    Supports backends: filesystem (lab), S3, Azure Blob, GCS
+    All backends support tenant/env namespacing.
     """
     
     def _resolve_adapter_for_context(self, ctx: RequestContext):
-        """Resolve object_store backend via routing registry (no env selection)."""
+        """Resolve object_store backend via routing registry."""
         try:
             registry = routing_registry()
             route = registry.get_route(
@@ -124,23 +124,40 @@ class ObjectStoreService:
             if not route:
                 raise MissingRoutingConfig(
                     f"No route configured for object_store in {ctx.tenant_id}/{ctx.env}. "
-                    f"Configure via /routing/routes with backend_type=filesystem or s3."
+                    f"Configure via /routing/routes with backend_type=filesystem|s3|azure_blob|gcs."
                 )
             
             backend_type = (route.backend_type or "").lower()
+            config = route.config or {}
             
             if backend_type == "filesystem":
+                # Lab-only filesystem
+                if ctx.mode not in ("lab",):
+                    raise RuntimeError(
+                        f"Filesystem backend for object_store not allowed in mode={ctx.mode}. "
+                        f"Use s3, azure_blob, or gcs."
+                    )
                 return FileSystemObjectStore()
             elif backend_type == "s3":
-                # Wrap S3RawStorageRepository to match ObjectStoreAdapter protocol
+                # S3 (from Lane 4)
                 from engines.nexus.raw_storage.repository import S3RawStorageRepository
-                bucket = route.config.get("bucket") if route.config else None
+                bucket = config.get("bucket")
                 s3_repo = S3RawStorageRepository(bucket_name=bucket)
                 return S3ObjectStoreAdapter(s3_repo, ctx)
+            elif backend_type == "azure_blob":
+                # Azure Blob (Builder C)
+                connection_string = config.get("connection_string")
+                container = config.get("container", "raw-objects")
+                return AzureBlobStorageAdapter(connection_string=connection_string, container=container)
+            elif backend_type == "gcs":
+                # GCS (Builder C)
+                project = config.get("project")
+                bucket = config.get("bucket")
+                return GCSObjectStoreAdapter(project=project, bucket=bucket)
             else:
                 raise RuntimeError(
                     f"Unsupported object_store backend_type='{backend_type}'. "
-                    f"Use 'filesystem' or 's3'."
+                    f"Use 'filesystem' (lab), 's3', 'azure_blob', or 'gcs'."
                 )
         except MissingRoutingConfig as e:
             raise RuntimeError(str(e)) from e
@@ -152,13 +169,13 @@ class ObjectStoreService:
     ) -> Dict[str, Any]:
         """
         Generate a presigned upload URL for a new asset.
-        For S3 backends: returns presigned POST fields.
+        For S3/Blob/GCS: returns presigned URL/fields.
         For filesystem: returns filesystem put endpoint info.
         """
         adapter = self._resolve_adapter_for_context(ctx)
         asset_id = str(uuid.uuid4())
         
-        # For S3 adapters, they have generate_presigned_post
+        # For adapters with generate_presigned_post
         if hasattr(adapter, 'generate_presigned_post'):
             url, fields = adapter.generate_presigned_post(
                 tenant_id=ctx.tenant_id,
