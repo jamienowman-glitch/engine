@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Body
+from fastapi import APIRouter, Depends, Body, HTTPException, Query, Request
 
 from engines.common.identity import (
     RequestContext,
@@ -15,6 +15,7 @@ from engines.nexus.hardening.auth import enforce_tenant_context
 from engines.nexus.hardening.gate_chain import GateChain, get_gate_chain
 from engines.nexus.raw_storage.models import RawAsset
 from engines.nexus.raw_storage.routing_service import ObjectStoreService
+from engines.routing.manager import ForbiddenBackendClass
 
 router = APIRouter(prefix="/nexus/raw", tags=["nexus_raw_storage"])
 
@@ -58,3 +59,74 @@ def register_asset(
         size_bytes=asset.size_bytes,
         metadata=asset.metadata,
     )
+
+
+@router.post("/put")
+async def put_object(
+    request: Request,
+    key: str = Query(..., description="Object key/path"),
+    ctx: RequestContext = Depends(get_request_context),
+) -> Dict[str, Any]:
+    """Store a raw binary blob in object store.
+    
+    - Accepts binary data in request body
+    - Backend-class guard enforced: filesystem forbidden in sellable modes
+    """
+    try:
+        body = await request.body()
+        service = ObjectStoreService()
+        service.put(ctx, key, body)
+        
+        return {
+            "key": key,
+            "status": "success",
+            "message": f"Object stored at {key}",
+        }
+    
+    except ForbiddenBackendClass as e:
+        raise HTTPException(
+            status_code=403,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Put object failed: {str(e)}",
+        ) from e
+
+
+@router.get("/get")
+async def get_object(
+    key: str = Query(..., description="Object key/path"),
+    ctx: RequestContext = Depends(get_request_context),
+) -> bytes:
+    """Retrieve a raw binary blob from object store.
+    
+    - Returns binary data with appropriate content-type
+    - Backend-class guard enforced: filesystem forbidden in sellable modes
+    """
+    try:
+        service = ObjectStoreService()
+        data = service.get(ctx, key)
+        
+        if data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Object not found: {key}",
+            )
+        
+        return data
+    
+    except ForbiddenBackendClass as e:
+        raise HTTPException(
+            status_code=403,
+            detail=str(e),
+        ) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Get object failed: {str(e)}",
+        ) from e
+
