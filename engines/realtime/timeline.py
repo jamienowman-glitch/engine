@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Dict, List, Optional, Protocol
 
 from engines.common.identity import RequestContext
@@ -98,61 +97,46 @@ class FirestoreTimelineStore:
 def _default_timeline_store() -> TimelineStore:
     """Resolve timeline store via routing registry (Lane 3 wiring).
     
-    Routes event_stream resource_kind to appropriate backend:
-    - filesystem (default for dev, requires routing registry entry)
-    - firestore (explicit route with backend_type=firestore)
+    Routes event_stream resource_kind to appropriate backend via routing registry.
+    Supports:
+    - filesystem (lab-only, requires routing entry + lab mode)
+    - firestore (cloud backend, requires GCP credentials)
     
-    Fails fast if no route configured; no env-driven selection.
+    Fails fast with explicit error if:
+    - No route configured for event_stream
+    - Backend type is unsupported
+    - Filesystem backend in sellable modes (saas/enterprise/t_system)
+    
+    NOTE: env var STREAM_TIMELINE_BACKEND no longer used (Lane 3 removes env gates).
     """
     from engines.routing.registry import routing_registry, MissingRoutingConfig
     from engines.realtime.filesystem_timeline import FileSystemTimelineStore
     
-    try:
-        registry = routing_registry()
-        # Try to resolve route for event_stream kind (tenant=t_system, env as fallback)
-        route = registry.get_route(
-            resource_kind="event_stream",
-            tenant_id="t_system",
-            env="dev",  # Baseline for startup resolution
+    registry = routing_registry()
+    # Try to resolve route for event_stream kind (tenant=t_system, env as baseline)
+    route = registry.get_route(
+        resource_kind="event_stream",
+        tenant_id="t_system",
+        env="dev",  # Baseline for startup resolution
+    )
+    
+    if not route:
+        raise RuntimeError(
+            "No route configured for event_stream. "
+            "Create a route via /routing/routes with backend_type='filesystem' (lab only) or 'firestore' (cloud)."
         )
-        
-        if not route:
-            raise MissingRoutingConfig(
-                "No route configured for event_stream. "
-                "Route with backend_type=filesystem or firestore via /routing/routes."
-            )
-        
-        backend_type = (route.backend_type or "").lower()
-        
-        if backend_type == "filesystem":
-            return FileSystemTimelineStore()
-        elif backend_type == "firestore":
-            return FirestoreTimelineStore()
-        else:
-            raise RuntimeError(
-                f"Unsupported event_stream backend_type='{backend_type}'. "
-                f"Use 'filesystem' or 'firestore'."
-            )
-    except MissingRoutingConfig as e:
-        # Re-raise with context
-        raise RuntimeError(str(e)) from e
-    except Exception as exc:
-        # Fallback for missing routing infrastructure in tests
-        logger.warning(
-            "Failed to resolve event_stream route; falling back to env-based selection: %s", exc
+    
+    backend_type = (route.backend_type or "").lower()
+    
+    if backend_type == "filesystem":
+        return FileSystemTimelineStore()
+    elif backend_type == "firestore":
+        return FirestoreTimelineStore()
+    else:
+        raise RuntimeError(
+            f"Unsupported event_stream backend_type='{backend_type}'. "
+            f"Use 'filesystem' (lab-only) or 'firestore' (cloud)."
         )
-        # Legacy env-based fallback (for tests/migration)
-        backend = (os.getenv("STREAM_TIMELINE_BACKEND") or "").lower()
-        if backend == "firestore":
-            return FirestoreTimelineStore()
-        elif backend == "filesystem":
-            from engines.realtime.filesystem_timeline import FileSystemTimelineStore
-            return FileSystemTimelineStore()
-        else:
-            raise RuntimeError(
-                "STREAM_TIMELINE_BACKEND must be 'firestore' or 'filesystem'. "
-                "Or configure event_stream route via /routing/routes."
-            )
 
 
 _timeline_store: Optional[TimelineStore] = None
