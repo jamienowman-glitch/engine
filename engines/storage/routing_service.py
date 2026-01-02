@@ -1,6 +1,7 @@
-"""Tabular store service with routing-based backend resolution (Lane 3 wiring).
+"""Tabular store service with routing-based backend resolution (Builder A).
 
-Routes tabular_store resource_kind through routing registry (filesystem default).
+Routes tabular_store resource_kind through routing registry.
+Supports filesystem (lab), Firestore, DynamoDB, Cosmos (cloud).
 """
 from __future__ import annotations
 
@@ -10,6 +11,11 @@ from typing import Any, Dict, Optional
 from engines.common.identity import RequestContext
 from engines.routing.registry import MissingRoutingConfig, routing_registry
 from engines.storage.filesystem_tabular import FileSystemTabularStore
+from engines.storage.cloud_tabular_store import (
+    FirestoreTabularStore,
+    DynamoDBTabularStore,
+    CosmosTabularStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,23 +44,39 @@ class TabularStoreService:
             if not route:
                 raise MissingRoutingConfig(
                     f"No route configured for tabular_store in {self._context.tenant_id}/{self._context.env}. "
-                    f"Configure via /routing/routes with backend_type=filesystem."
+                    f"Configure via /routing/routes with backend_type=filesystem|firestore|dynamodb|cosmos."
                 )
             
             backend_type = (route.backend_type or "").lower()
+            config = route.config or {}
             
             if backend_type == "filesystem":
+                # Lab-only filesystem
+                if self._context.mode not in ("lab",):
+                    raise RuntimeError(
+                        f"Filesystem backend for tabular_store not allowed in mode={self._context.mode}. "
+                        f"Use firestore, dynamodb, or cosmos."
+                    )
                 return FileSystemTabularStore()
             elif backend_type == "firestore":
-                # Lane 4: Firestore adapter placeholder (fail-fast NotImplementedError)
-                raise NotImplementedError(
-                    f"Firestore backend for tabular_store not yet implemented (Lane 4). "
-                    f"Use backend_type=filesystem for now."
-                )
+                # Cloud: Firestore (Builder A real implementation)
+                project = config.get("project")
+                return FirestoreTabularStore(project=project)
+            elif backend_type == "dynamodb":
+                # Cloud: DynamoDB (Builder A real implementation)
+                table_name = config.get("table_name")
+                region = config.get("region", "us-west-2")
+                return DynamoDBTabularStore(table_name=table_name, region=region)
+            elif backend_type == "cosmos":
+                # Cloud: Cosmos (Builder A real implementation)
+                endpoint = config.get("endpoint")
+                key = config.get("key")
+                database = config.get("database", "tabular_store")
+                return CosmosTabularStore(endpoint=endpoint, key=key, database=database)
             else:
                 raise RuntimeError(
                     f"Unsupported tabular_store backend_type='{backend_type}'. "
-                    f"Use 'filesystem' or 'firestore' (when implemented)."
+                    f"Use 'filesystem' (lab), 'firestore', 'dynamodb', or 'cosmos'."
                 )
         except MissingRoutingConfig as e:
             raise RuntimeError(str(e)) from e
