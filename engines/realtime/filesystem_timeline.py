@@ -53,9 +53,22 @@ class FileSystemTimelineStore:
         return self._stream_dir(stream_id, context) / "events.jsonl"
     
     def append(self, stream_id: str, event: StreamEvent, context: RequestContext) -> None:
-        """Append a StreamEvent to the timeline (append-only)."""
+        """Append a StreamEvent to the timeline (append-only).
+        
+        Enforces backend-class guard: filesystem backend forbidden in sellable modes.
+        """
         if context is None:
             raise RuntimeError("RequestContext is required for timeline append")
+        
+        # Backend-class guard (Lane 2): forbid filesystem in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=event_stream, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
         
         # Validate scope match (same checks as in-memory)
         routing = event.routing

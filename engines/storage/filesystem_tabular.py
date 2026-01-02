@@ -53,6 +53,16 @@ class FileSystemTabularStore:
         
         Implementation: rewrite entire file (simple JSONL, not too large typically).
         """
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=tabular_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         table_dir = self._table_dir(context)
         table_dir.mkdir(parents=True, exist_ok=True)
         
@@ -99,6 +109,16 @@ class FileSystemTabularStore:
         context: RequestContext,
     ) -> Optional[Dict[str, Any]]:
         """Get a record by key."""
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=tabular_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         table_file = self._table_file(table_name, context)
         
         if not table_file.exists():
@@ -128,6 +148,16 @@ class FileSystemTabularStore:
         context: RequestContext,
     ) -> list[Dict[str, Any]]:
         """List records with keys matching prefix."""
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=tabular_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         table_file = self._table_file(table_name, context)
         
         if not table_file.exists():
@@ -158,6 +188,16 @@ class FileSystemTabularStore:
         context: RequestContext,
     ) -> None:
         """Delete a record by key (rewrite file without it)."""
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=tabular_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         table_file = self._table_file(table_name, context)
         
         if not table_file.exists():

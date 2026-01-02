@@ -57,6 +57,16 @@ class FileSystemMetricsStore:
         source: Optional[str] = None,
     ) -> None:
         """Append a raw metric data point."""
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=metrics_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         metrics_dir = self._metrics_dir(context)
         metrics_dir.mkdir(parents=True, exist_ok=True)
         
@@ -93,6 +103,16 @@ class FileSystemMetricsStore:
             from engines.common.identity import RequestContext as RC
             context = RC(tenant_id="t_system", env="dev")
         
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=metrics_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         raw_file = self._raw_file(context)
         
         if not raw_file.exists():
@@ -122,5 +142,15 @@ class FileSystemMetricsStore:
         context: RequestContext,
     ) -> Optional[Dict[str, Any]]:
         """Get the latest value for a metric."""
+        # Enforce backend-class guard: filesystem forbidden in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=metrics_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         records = self.query(metric_name, context)
         return records[-1] if records else None

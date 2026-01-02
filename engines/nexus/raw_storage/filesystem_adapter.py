@@ -89,7 +89,20 @@ class FileSystemObjectStore:
         content: bytes, 
         context: RequestContext,
     ) -> str:
-        """Store a blob and return a reference URI."""
+        """Store a blob and return a reference URI.
+        
+        Enforces backend-class guard: filesystem backend forbidden in sellable modes.
+        """
+        # Backend-class guard (Lane 2): forbid filesystem in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=object_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         blob_dir = self._blob_dir(context)
         blob_dir.mkdir(parents=True, exist_ok=True)
         
@@ -111,7 +124,20 @@ class FileSystemObjectStore:
         key: str, 
         context: RequestContext,
     ) -> Optional[bytes]:
-        """Retrieve a blob by key."""
+        """Retrieve a blob by key.
+        
+        Enforces backend-class guard: filesystem backend forbidden in sellable modes.
+        """
+        # Backend-class guard (Lane 2): forbid filesystem in sellable modes
+        from engines.routing.manager import ForbiddenBackendClass, SELLABLE_MODES
+        mode_lower = (context.mode or "lab").lower()
+        if mode_lower in SELLABLE_MODES:
+            raise ForbiddenBackendClass(
+                f"[FORBIDDEN_BACKEND_CLASS] Backend 'filesystem' is forbidden in mode '{context.mode}' "
+                f"(resource_kind=object_store, tenant={context.tenant_id}, env={context.env}). "
+                f"Sellable modes require cloud backends. Use 'lab' mode for filesystem."
+            )
+        
         blob_path = self._blob_path(key, context)
         
         if not blob_path.exists():

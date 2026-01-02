@@ -1,6 +1,7 @@
 """Routing utilities for backend selection and validation."""
 from typing import Any, Optional
 
+from engines.common.identity import RequestContext
 from engines.routing.registry import routing_registry, MissingRoutingConfig
 
 
@@ -27,6 +28,17 @@ REQUIRED_RESOURCE_KINDS = [
 
 # Backend types that are NOT allowed in production (fail-fast enforcement)
 DISALLOWED_BACKENDS = {"memory", "noop", "local", "tmp", "localhost"}
+
+# Sellable modes where only cloud backends are allowed
+SELLABLE_MODES = {"t_system", "enterprise", "saas"}
+
+# Backend classes not allowed in sellable modes
+FORBIDDEN_BACKEND_CLASSES = {"filesystem", "in_memory", "memory"}
+
+# Exception for forbidden backend class
+class ForbiddenBackendClass(Exception):
+    """Raised when a forbidden backend is used in a sellable mode."""
+    code = "FORBIDDEN_BACKEND_CLASS"
 
 
 def startup_validation_check() -> None:
@@ -141,3 +153,42 @@ def get_backend_type(
         return None
     
     return route.backend_type
+
+
+def resolve_backend_with_guard(
+    resource_kind: str,
+    backend_type: Optional[str],
+    context: RequestContext,
+) -> None:
+    """Guard: enforce cloud-only backends in sellable modes (Phase 0.5 Lane 2).
+    
+    Lab-only enforcement: filesystem and in-memory backends are forbidden
+    when running in production modes (t_system, enterprise, saas).
+    
+    Args:
+        resource_kind: e.g. "event_stream", "object_store"
+        backend_type: resolved backend (e.g., "filesystem", "firestore", "s3")
+        context: RequestContext with mode/tenant/env/project
+    
+    Raises:
+        ForbiddenBackendClass: if backend is filesystem/in-memory in sellable mode
+    
+    Example:
+        >>> route = registry.get_route("event_stream", "t_demo", "dev")
+        >>> if route:
+        ...     resolve_backend_with_guard("event_stream", route.backend_type, context)
+    """
+    if not backend_type:
+        return  # No backend type, nothing to guard
+    
+    backend_lower = backend_type.lower()
+    mode_lower = (context.mode or "lab").lower()
+    
+    # Check if we're in a sellable mode with a forbidden backend
+    if mode_lower in SELLABLE_MODES and backend_lower in FORBIDDEN_BACKEND_CLASSES:
+        raise ForbiddenBackendClass(
+            f"[{ForbiddenBackendClass.code}] Backend '{backend_type}' is forbidden in mode '{context.mode}' "
+            f"(resource_kind={resource_kind}, tenant={context.tenant_id}, env={context.env}). "
+            f"Sellable modes require cloud backends (firestore, s3, dynamodb, cosmos, etc.). "
+            f"Use 'lab' mode for filesystem/in-memory backends."
+        )
