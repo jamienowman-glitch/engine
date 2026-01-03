@@ -17,7 +17,7 @@ def test_builder_actions_require_lock():
     repo = InMemoryStrategyLockRepository()
     svc = StrategyLockService(repo=repo)
     ctx = RequestContext(tenant_id="t_demo", env="dev", user_id="u1")
-    decision = svc.check_action_allowed(ctx.tenant_id, ctx.env, surface="squared", action=ACTION_BUILDER_PUBLISH_PAGE)
+    decision = svc.check_action_allowed(ctx, surface="squared", action=ACTION_BUILDER_PUBLISH_PAGE)
     assert not decision.allowed
     # add approved lock
     lock = StrategyLock(
@@ -31,6 +31,6 @@ def test_builder_actions_require_lock():
         created_by_user_id=ctx.user_id,
         status=StrategyStatus.approved,
     )
-    repo.create(lock)
-    decision2 = svc.check_action_allowed(ctx.tenant_id, ctx.env, surface="squared", action=ACTION_BUILDER_PUBLISH_PAGE)
+    repo.create(ctx, lock)
+    decision2 = svc.check_action_allowed(ctx, surface="squared", action=ACTION_BUILDER_PUBLISH_PAGE)
     assert decision2.allowed

@@ -339,3 +339,148 @@ def assert_context_matches(
         raise HTTPException(status_code=400, detail="surface_id mismatch with request context")
     if app_id and app_id != context.app_id:
         raise HTTPException(status_code=400, detail="app_id mismatch with request context")
+
+
+# ============================================================
+# AUTH-01: Identity Precedence Enforcement
+# ============================================================
+
+def validate_identity_precedence(
+    authenticated_context: RequestContext,
+    client_supplied_tenant_id: Optional[str] = None,
+    client_supplied_mode: Optional[str] = None,
+    client_supplied_project_id: Optional[str] = None,
+    client_supplied_user_id: Optional[str] = None,
+    client_supplied_surface_id: Optional[str] = None,
+    domain: str = "unknown",
+) -> None:
+    """Enforce server-derived identity precedence (AUTH-01).
+    
+    Rejects any attempt to override authenticated identity from request payload/headers.
+    
+    Server-derived identity sources (in precedence order):
+    1. JWT token claims (highest priority)
+    2. RequestContext (derived from headers)
+    3. Client is NOT an identity source
+    
+    Args:
+        authenticated_context: RequestContext from server (headers/JWT)
+        client_supplied_*: Identity fields from request payload
+        domain: Domain name (for audit) e.g. "event_spine", "memory_store"
+    
+    Raises:
+        HTTPException(403): If client attempts to override authenticated identity
+    
+    Side effects:
+        - Emits audit event on mismatch (via event_spine)
+    """
+    mismatches = []
+    
+    # Check tenant_id
+    if client_supplied_tenant_id and client_supplied_tenant_id != authenticated_context.tenant_id:
+        mismatches.append({
+            "field": "tenant_id",
+            "authenticated": authenticated_context.tenant_id,
+            "attempted": client_supplied_tenant_id,
+        })
+    
+    # Check mode
+    if client_supplied_mode:
+        client_mode = client_supplied_mode.lower() if client_supplied_mode else None
+        if client_mode and client_mode != authenticated_context.mode:
+            mismatches.append({
+                "field": "mode",
+                "authenticated": authenticated_context.mode,
+                "attempted": client_mode,
+            })
+    
+    # Check project_id
+    if client_supplied_project_id and client_supplied_project_id != authenticated_context.project_id:
+        mismatches.append({
+            "field": "project_id",
+            "authenticated": authenticated_context.project_id,
+            "attempted": client_supplied_project_id,
+        })
+    
+    # Check user_id
+    if client_supplied_user_id and client_supplied_user_id != authenticated_context.user_id:
+        mismatches.append({
+            "field": "user_id",
+            "authenticated": authenticated_context.user_id,
+            "attempted": client_supplied_user_id,
+        })
+    
+    # Check surface_id
+    if client_supplied_surface_id and client_supplied_surface_id != authenticated_context.surface_id:
+        mismatches.append({
+            "field": "surface_id",
+            "authenticated": authenticated_context.surface_id,
+            "attempted": client_supplied_surface_id,
+        })
+    
+    if mismatches:
+        # Emit audit event on mismatch
+        try:
+            _emit_identity_override_audit(
+                context=authenticated_context,
+                domain=domain,
+                mismatches=mismatches,
+            )
+        except Exception as e:
+            # Log but don't fail if audit fails
+            import logging
+            logging.warning(f"Failed to emit identity override audit: {e}")
+        
+        # Reject with 403
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "auth.identity_override",
+                "message": "Client-supplied identity does not match authenticated context",
+                "mismatches": mismatches,
+                "domain": domain,
+            },
+        )
+
+
+def _emit_identity_override_audit(
+    context: RequestContext,
+    domain: str,
+    mismatches: list,
+) -> None:
+    """Emit audit event for identity override attempt.
+    
+    Uses event_spine if available; falls back to logging.
+    """
+    import logging
+    
+    try:
+        from engines.event_spine.service_reject import EventSpineServiceRejectOnMissing
+        
+        svc = EventSpineServiceRejectOnMissing(context)
+        svc.append(
+            event_type="auth_violation",
+            source="auth_engine",
+            run_id=context.run_id or context.request_id,
+            payload={
+                "violation_type": "identity_override",
+                "domain": domain,
+                "mismatches": mismatches,
+                "tenant_id": context.tenant_id,
+                "user_id": context.user_id,
+                "request_id": context.request_id,
+            },
+        )
+    except Exception as e:
+        # Fallback to logging
+        logging.error(
+            f"Identity override audit event failed; logging instead: {e}",
+            extra={
+                "violation_type": "identity_override",
+                "domain": domain,
+                "mismatches": mismatches,
+                "tenant_id": context.tenant_id,
+                "user_id": context.user_id,
+                "request_id": context.request_id,
+            },
+        )

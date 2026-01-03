@@ -41,6 +41,8 @@ class StrategyLock(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     tenant_id: str
     env: str
+    mode: Optional[str] = None
+    project_id: Optional[str] = None
     surface: Optional[str] = None
     scope: StrategyScope
     title: str
@@ -55,6 +57,8 @@ class StrategyLock(BaseModel):
     valid_until: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+    version: int = 1
+    deleted: bool = False
 
 
 class StrategyLockCreate(BaseModel):

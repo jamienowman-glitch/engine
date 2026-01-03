@@ -15,6 +15,8 @@ class PageSeoConfig(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     tenant_id: str
     env: str
+    mode: Optional[str] = None
+    project_id: Optional[str] = None
     surface: str
     page_type: str
     title: str
@@ -25,3 +27,4 @@ class PageSeoConfig(BaseModel):
     canonical_url: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+    version: int = 1

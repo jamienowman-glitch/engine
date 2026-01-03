@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import os
-
-from engines.strategy_lock.repository import InMemoryStrategyLockRepository, StrategyLockRepository, FirestoreStrategyLockRepository
+from engines.strategy_lock.repository import (
+    InMemoryStrategyLockRepository,
+    RoutedStrategyLockRepository,
+    StrategyLockRepository,
+)
 
 
 def _default_repo() -> StrategyLockRepository:
-    backend = os.getenv("STRATEGY_LOCK_BACKEND", "").lower()
-    if backend == "firestore":
-        try:
-            return FirestoreStrategyLockRepository()
-        except NotImplementedError:
-            # Fall back until Firestore impl lands
-            return InMemoryStrategyLockRepository()
-    return InMemoryStrategyLockRepository()
+    return RoutedStrategyLockRepository()
 
 
 strategy_lock_repo: StrategyLockRepository = _default_repo()

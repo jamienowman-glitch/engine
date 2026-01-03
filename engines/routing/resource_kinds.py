@@ -14,6 +14,7 @@ class ResourceKind(str, Enum):
     EVENT_STREAM = "event_stream"
     METRICS_STORE = "metrics_store"
     MEMORY_STORE = "memory_store"
+    ANALYTICS_STORE = "analytics_store"
 
 
 # For convenience, also export as string constants
@@ -23,6 +24,7 @@ TABULAR_STORE = ResourceKind.TABULAR_STORE.value
 EVENT_STREAM = ResourceKind.EVENT_STREAM.value
 METRICS_STORE = ResourceKind.METRICS_STORE.value
 MEMORY_STORE = ResourceKind.MEMORY_STORE.value
+ANALYTICS_STORE = ResourceKind.ANALYTICS_STORE.value
 
 # All kinds as list
 ALL_RESOURCE_KINDS = [
@@ -32,4 +34,5 @@ ALL_RESOURCE_KINDS = [
     EVENT_STREAM,
     METRICS_STORE,
     MEMORY_STORE,
+    ANALYTICS_STORE,
 ]

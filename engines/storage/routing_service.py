@@ -26,8 +26,9 @@ class TabularStoreService:
     Provides unified key/value interface for policies and hard facts.
     """
     
-    def __init__(self, context: RequestContext) -> None:
+    def __init__(self, context: RequestContext, resource_kind: str = "tabular_store") -> None:
         self._context = context
+        self._resource_kind = resource_kind
         self._adapter = self._resolve_adapter()
     
     def _resolve_adapter(self):
@@ -35,15 +36,21 @@ class TabularStoreService:
         try:
             registry = routing_registry()
             route = registry.get_route(
-                resource_kind="tabular_store",
+                resource_kind=self._resource_kind,
                 tenant_id=self._context.tenant_id,
                 env=self._context.env,
                 project_id=self._context.project_id,
             )
             
             if not route:
+                logger.warning(
+                    "No route configured for %s in %s/%s. Configure via /routing/routes with backend_type=filesystem|firestore|dynamodb|cosmos.",
+                    self._resource_kind,
+                    self._context.tenant_id,
+                    self._context.env,
+                )
                 raise MissingRoutingConfig(
-                    f"No route configured for tabular_store in {self._context.tenant_id}/{self._context.env}. "
+                    f"No route configured for {self._resource_kind} in {self._context.tenant_id}/{self._context.env}. "
                     f"Configure via /routing/routes with backend_type=filesystem|firestore|dynamodb|cosmos."
                 )
             

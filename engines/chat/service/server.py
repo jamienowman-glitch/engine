@@ -55,6 +55,7 @@ from engines.kill_switch.routes import router as kill_switch_router
 from engines.knowledge.routes import router as knowledge_router
 from engines.ops.status import router as ops_status_router
 from engines.origin_snippets.routes import router as origin_snippets_router
+from engines.persistence.routes import router as persistence_router
 from engines.routing.routes import router as routing_router
 
 from engines.routing.manager import startup_validation_check
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
         app.include_router(nexus_memory_router)
         app.include_router(canvas_commands_router)
         app.include_router(origin_snippets_router)
+        app.include_router(persistence_router)
         app.include_router(routing_router)
         # L1-T2 mounts
         from engines.canvas_stream.router import router as canvas_stream_router

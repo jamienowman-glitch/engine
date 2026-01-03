@@ -241,11 +241,11 @@ class DynamoDBAnalyticsStore:
             
             if filters and "run_id" in filters:
                 # Query by run_id (if GSI available)
+                expression_values = {":pk": pk, ":run_id": filters["run_id"]}
                 response = self._table.query(
                     KeyConditionExpression="pk = :pk",
-                    ExpressionAttributeValues={":pk": pk},
                     FilterExpression="run_id = :run_id",
-                    ExpressionAttributeValues={":run_id": filters["run_id"]},
+                    ExpressionAttributeValues=expression_values,
                     Limit=limit,
                     ScanIndexForward=False,
                 )

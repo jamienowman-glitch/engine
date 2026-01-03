@@ -6,10 +6,10 @@ from typing import List, Optional
 from fastapi import HTTPException
 
 from engines.common.identity import RequestContext
+from engines.persistence.events import emit_persistence_event
 from engines.strategy_lock.models import StrategyDecision, StrategyLock, StrategyLockCreate, StrategyLockUpdate, StrategyStatus
 from engines.strategy_lock.repository import StrategyLockRepository
 from engines.strategy_lock.state import strategy_lock_repo, set_strategy_lock_repo
-from engines.logging.audit import emit_audit_event
 from engines.three_wise.models import ThreeWiseVerdict
 from engines.three_wise.service import get_three_wise_service
 
@@ -24,6 +24,8 @@ class StrategyLockService:
         lock = StrategyLock(
             tenant_id=ctx.tenant_id,
             env=ctx.env,
+            mode=ctx.mode,
+            project_id=ctx.project_id,
             surface=payload.surface,
             scope=payload.scope,
             title=payload.title,
@@ -35,8 +37,8 @@ class StrategyLockService:
             valid_from=payload.valid_from,
             valid_until=payload.valid_until,
         )
-        created = self.repo.create(lock)
-        emit_audit_event(ctx, action="strategy_lock.create", surface="strategy_lock", metadata={"lock_id": created.id})
+        created = self.repo.create(ctx, lock)
+        emit_persistence_event(ctx, resource="strategy_lock", action="create", record_id=created.id, version=created.version, event_type="strategy_lock")
         return created
 
     def list_locks(
@@ -46,10 +48,10 @@ class StrategyLockService:
         surface: Optional[str] = None,
         scope: Optional[str] = None,
     ) -> List[StrategyLock]:
-        return self.repo.list(ctx.tenant_id, ctx.env, status=status, surface=surface, scope=scope)
+        return self.repo.list(ctx, status=status, surface=surface, scope=scope)
 
-    def get_lock(self, ctx: RequestContext, lock_id: str) -> StrategyLock:
-        lock = self.repo.get(ctx.tenant_id, ctx.env, lock_id)
+    def get_lock(self, ctx: RequestContext, lock_id: str, version: Optional[int] = None) -> StrategyLock:
+        lock = self.repo.get_version(ctx, lock_id, version) if version is not None else self.repo.get(ctx, lock_id)
         if not lock:
             raise HTTPException(status_code=404, detail="strategy_lock_not_found")
         return lock
@@ -69,15 +71,17 @@ class StrategyLockService:
         if payload.valid_until is not None:
             lock.valid_until = payload.valid_until
         lock.updated_at = datetime.now(timezone.utc)
-        return self.repo.update(lock)
+        updated = self.repo.update(ctx, lock)
+        emit_persistence_event(ctx, resource="strategy_lock", action="update", record_id=lock.id, version=updated.version, event_type="strategy_lock")
+        return updated
 
     def approve_lock(self, ctx: RequestContext, lock_id: str) -> StrategyLock:
         lock = self.get_lock(ctx, lock_id)
         lock.status = StrategyStatus.approved
         lock.approved_by_user_id = ctx.user_id
         lock.updated_at = datetime.now(timezone.utc)
-        updated = self.repo.update(lock)
-        emit_audit_event(ctx, action="strategy_lock.approve", surface="strategy_lock", metadata={"lock_id": lock.id})
+        updated = self.repo.update(ctx, lock)
+        emit_persistence_event(ctx, resource="strategy_lock", action="approve", record_id=lock.id, version=updated.version, event_type="strategy_lock")
         return updated
 
     def reject_lock(self, ctx: RequestContext, lock_id: str) -> StrategyLock:
@@ -85,22 +89,21 @@ class StrategyLockService:
         lock.status = StrategyStatus.rejected
         lock.approved_by_user_id = ctx.user_id
         lock.updated_at = datetime.now(timezone.utc)
-        updated = self.repo.update(lock)
-        emit_audit_event(ctx, action="strategy_lock.reject", surface="strategy_lock", metadata={"lock_id": lock.id})
+        updated = self.repo.update(ctx, lock)
+        emit_persistence_event(ctx, resource="strategy_lock", action="reject", record_id=lock.id, version=updated.version, event_type="strategy_lock")
         return updated
 
     def check_action_allowed(
         self,
-        tenant_id: str,
-        env: str,
+        ctx: RequestContext,
         surface: Optional[str],
         action: str,
         now: Optional[datetime] = None,
     ) -> StrategyDecision:
         now = now or datetime.now(timezone.utc)
-        locks = self.repo.list(tenant_id, env, status=StrategyStatus.approved, surface=surface)
+        locks = self.repo.list(ctx, status=StrategyStatus.approved, surface=surface)
         # consider surface-agnostic locks too
-        locks += [l for l in self.repo.list(tenant_id, env, status=StrategyStatus.approved, surface=None) if l not in locks]
+        locks += [l for l in self.repo.list(ctx, status=StrategyStatus.approved, surface=None) if l not in locks]
         for lock in locks:
             if lock.valid_from and lock.valid_from > now:
                 continue
@@ -108,7 +111,7 @@ class StrategyLockService:
                 continue
             if "*" not in lock.allowed_actions and action not in lock.allowed_actions:
                 continue
-            tw_verdict = self._three_wise_verdict(tenant_id, env, lock)
+            tw_verdict = self._three_wise_verdict(ctx, lock)
             if lock.three_wise_id and tw_verdict != ThreeWiseVerdict.approve:
                 return StrategyDecision(
                     allowed=False,
@@ -120,7 +123,7 @@ class StrategyLockService:
         return StrategyDecision(allowed=False, reason="strategy_lock_required", lock_id=None, three_wise_verdict=None)
 
     def require_strategy_lock_or_raise(self, ctx: RequestContext, surface: Optional[str], action: str) -> None:
-        decision = self.check_action_allowed(ctx.tenant_id, ctx.env, surface, action)
+        decision = self.check_action_allowed(ctx, surface, action)
         if not decision.allowed:
             detail = {"error": decision.reason or "strategy_lock_required", "action": action}
             if decision.lock_id:
@@ -131,7 +134,7 @@ class StrategyLockService:
 
     def require_three_wise_approval_or_raise(self, ctx: RequestContext, lock_id: str) -> None:
         lock = self.get_lock(ctx, lock_id)
-        verdict = self._three_wise_verdict(ctx.tenant_id, ctx.env, lock)
+        verdict = self._three_wise_verdict(ctx, lock)
         if not lock.three_wise_id:
             raise HTTPException(status_code=409, detail={"error": "three_wise_required", "lock_id": lock_id})
         if verdict != ThreeWiseVerdict.approve:
@@ -141,11 +144,10 @@ class StrategyLockService:
             )
 
     @staticmethod
-    def _three_wise_verdict(tenant_id: str, env: str, lock: StrategyLock) -> Optional[ThreeWiseVerdict]:
+    def _three_wise_verdict(ctx: RequestContext, lock: StrategyLock) -> Optional[ThreeWiseVerdict]:
         if not lock.three_wise_id:
             return None
         try:
-            ctx = RequestContext(tenant_id=tenant_id, env=env)
             record = get_three_wise_service().get_record(ctx, lock.three_wise_id)
             return record.verdict or ThreeWiseVerdict.unsure
         except Exception:

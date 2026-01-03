@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from engines.common.identity import RequestContext, assert_context_matches, get_request_context
 from engines.identity.auth import get_auth_context, require_tenant_membership, require_tenant_role
@@ -38,11 +38,12 @@ def list_strategy_locks(
 @router.get("/{lock_id}", response_model=StrategyLock)
 def get_strategy_lock(
     lock_id: str,
+    version: int | None = Query(None),
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
     require_tenant_membership(auth, context.tenant_id)
-    return get_strategy_lock_service().get_lock(context, lock_id)
+    return get_strategy_lock_service().get_lock(context, lock_id, version=version)
 
 
 @router.patch("/{lock_id}", response_model=StrategyLock)
