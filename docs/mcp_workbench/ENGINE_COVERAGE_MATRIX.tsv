@@ -45,7 +45,7 @@ engines.nexus.atoms.routes	PASS	FAIL	TBD	FAIL	NA
 engines.nexus.cards.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-013
 engines.nexus.index.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-016
 engines.nexus.packs.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-017
-engines.nexus.settings.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.settings.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-018
 engines.nexus.runs.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.nexus.memory.routes	PASS	FAIL	TBD	PASS	NA	Has GateChain
 engines.canvas_commands	PASS	FAIL	TBD	PASS	NA	Has GateChain
