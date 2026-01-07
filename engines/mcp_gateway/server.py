@@ -72,6 +72,9 @@ def create_app() -> FastAPI:
     # Register/Wire tools
     echo.register(get_inventory())
     media_v2.register(get_inventory())
+    
+    from engines.mcp_gateway.tools import wrappers
+    wrappers.register_all_wrappers()
 
     @app.get("/health")
     async def health_check():
