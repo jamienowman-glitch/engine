@@ -159,6 +159,30 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    # --- Exports ---
+    @app.get("/exports/tools")
+    async def export_tools_endpoint():
+        from engines.mcp_gateway.tsv_export import export_tools_tsv
+        from fastapi.responses import Response
+        return Response(content=export_tools_tsv(), media_type="text/tab-separated-values")
+
+    @app.get("/exports/scopes")
+    async def export_scopes_endpoint():
+        from engines.mcp_gateway.tsv_export import export_scopes_tsv
+        from fastapi.responses import Response
+        return Response(content=export_scopes_tsv(), media_type="text/tab-separated-values")
+
+    @app.get("/exports/policies")
+    async def export_policies_endpoint(ctx: RequestContext = Depends(get_request_context)):
+        from engines.mcp_gateway.tsv_export import export_policies_tsv
+        from fastapi.responses import Response
+        # We need to handle potential errors if firearms repo is strict about tenants
+        try:
+            tsv = export_policies_tsv(ctx)
+            return Response(content=tsv, media_type="text/tab-separated-values")
+        except Exception as e:
+            return Response(content=str(e), status_code=500)
+
     return app
 
 app = create_app()
