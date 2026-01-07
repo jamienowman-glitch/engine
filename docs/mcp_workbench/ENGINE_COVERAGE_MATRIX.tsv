@@ -24,7 +24,7 @@ engines.video_multicam.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-004
 engines.video_visual_meta.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.audio_semantic_timeline.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-005
 engines.audio_voice_enhance.routes	PASS	FAIL	TBD	FAIL	NA	
-engines.video_presets.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.video_presets.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-006
 engines.video_text.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
 engines.budget.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.billing.routes	PASS	FAIL	TBD	FAIL	NA	
