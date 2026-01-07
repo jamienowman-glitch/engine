@@ -38,7 +38,7 @@ engines.knowledge.routes	PASS	FAIL	TBD	FAIL	NA
 engines.analytics_events.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.three_wise.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.firearms.routes	PASS	FAIL	TBD	FAIL	NA	
-engines.memory.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.memory.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-015
 engines.actions.router	PASS	FAIL	TBD	PASS	NA	Has GateChain
 engines.nexus.raw_storage.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-014
 engines.nexus.atoms.routes	PASS	FAIL	TBD	FAIL	NA	
