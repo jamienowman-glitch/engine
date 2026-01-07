@@ -1,7 +1,9 @@
 """Card API Routes (PHASE_02: strict RequestContext + AuthContext enforcement)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Body
+from fastapi import APIRouter, Depends, Body, HTTPException
+
+from engines.common.error_envelope import error_response
 
 from engines.common.identity import RequestContext, get_request_context
 from engines.identity.auth import AuthContext, get_auth_context
@@ -20,6 +22,10 @@ def get_service() -> CardService:
 from engines.kill_switch.service import KillSwitchService, get_kill_switch_service
 from engines.nexus.hardening.rate_limit import RateLimitService, get_rate_limiter
 
+from engines.common.error_envelope import error_response
+
+# ... (imports)
+
 @router.post("", response_model=Card)
 def create_card(
     card_text: str = Body(..., media_type="text/plain"),
@@ -31,9 +37,15 @@ def create_card(
 ) -> Card:
     """Create a new card from raw YAML+NL text."""
     enforce_tenant_context(ctx, auth)
-    gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
-    limiter.check_rate_limit(ctx, "card_create")
-    return service.create_card(ctx, card_text)
+    
+    try:
+        gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
+        limiter.check_rate_limit(ctx, "card_create")
+        return service.create_card(ctx, card_text)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return error_response(code="nexus.card_create_failed", message=str(exc), status_code=500)
 
 
 @router.get("/{card_id}", response_model=Card)
@@ -47,6 +59,15 @@ def get_card(
 ) -> Card:
     """Retrieve a card by ID."""
     enforce_tenant_context(ctx, auth)
-    kill_switch.ensure_action_allowed(ctx, "card_read")
-    limiter.check_rate_limit(ctx, "card_read")
-    return service.get_card(ctx, card_id)
+    
+    try:
+        kill_switch.ensure_action_allowed(ctx, "card_read")
+        limiter.check_rate_limit(ctx, "card_read")
+        return service.get_card(ctx, card_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Check for not found in message if not strict exception
+        if "not found" in str(exc).lower():
+            return error_response(code="nexus.card_not_found", message=str(exc), status_code=404)
+        return error_response(code="nexus.card_read_failed", message=str(exc), status_code=500)
