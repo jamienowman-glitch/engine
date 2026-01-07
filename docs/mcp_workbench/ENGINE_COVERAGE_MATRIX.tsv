@@ -2,7 +2,7 @@ Router Group	Identity Enforced	Error Envelope	Routing/Durability	GateChain	Strea
 engines.chat.service.ws_transport	PASS	PASS	TBD	PASS	FAIL	Manual verification: Uses internal envelope helpers.
 engines.chat.service.sse_transport	PASS	PASS	TBD	PASS	PASS	Manual verification: Uses internal envelope helpers.
 engines.chat.service.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-010 (added GateChain)
-engines.media.service.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.media.service.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-011
 engines.media_v2.routes	PASS	PASS	TBD	FAIL	NA	Only one with ErrorEnvelope
 engines.maybes.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.identity.routes_auth	FAIL	FAIL	TBD	FAIL	NA	Likely Exception (Public Auth)
