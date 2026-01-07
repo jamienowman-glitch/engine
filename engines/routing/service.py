@@ -178,9 +178,6 @@ class RoutingControlPlaneService:
                     step_id=context.step_id,
                 ),
                 data=event_data,
-                    "backend_type": route.backend_type,
-                    "route_id": route.id,
-                },
                 meta=EventMeta(
                     priority=EventPriority.TRUTH,
                     persist=PersistPolicy.ALWAYS,
