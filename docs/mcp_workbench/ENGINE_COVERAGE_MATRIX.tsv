@@ -1,0 +1,58 @@
+Router Group	Identity Enforced	Error Envelope	Routing/Durability	GateChain	Streaming Semantics	Notes/Evidence
+engines.chat.service.ws_transport	FAIL	FAIL	TBD	PASS	FAIL	Missing RequestContext; GateChain present?
+engines.chat.service.sse_transport	PASS	FAIL	TBD	FAIL	PASS	
+engines.chat.service.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.media.service.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.media_v2.routes	PASS	PASS	TBD	FAIL	NA	Only one with ErrorEnvelope
+engines.maybes.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.identity.routes_auth	FAIL	FAIL	TBD	FAIL	NA	Likely Exception (Public Auth)
+engines.identity.routes_keys	PASS	FAIL	TBD	FAIL	NA	
+engines.identity.routes_analytics	PASS	FAIL	TBD	FAIL	NA	
+engines.identity.routes_control_plane	PASS	FAIL	TBD	FAIL	NA	
+engines.identity.routes_ticket	PASS	FAIL	TBD	FAIL	NA	
+engines.strategy_lock.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.temperature.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.vector_explorer.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.vector_ingest.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.video_timeline.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.video_render.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.video_360.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.video_regions.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.audio_service.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.video_mask.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.video_multicam.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.video_visual_meta.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.audio_semantic_timeline.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.audio_voice_enhance.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.video_presets.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.video_text.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.budget.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.billing.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.kpi.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.seo.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.bossman.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.debug.aws_routes	PASS	FAIL	TBD	FAIL	NA	
+engines.kill_switch.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.ops.status	FAIL	FAIL	TBD	FAIL	NA	Likely Exception (Healthcheck)
+engines.knowledge.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.analytics_events.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.three_wise.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.firearms.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.memory.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.actions.router	PASS	FAIL	TBD	PASS	NA	Has GateChain
+engines.nexus.raw_storage.routes	PASS	FAIL	TBD	PASS	NA	Has GateChain
+engines.nexus.atoms.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.cards.routes	PASS	FAIL	TBD	PASS	NA	Has GateChain
+engines.nexus.index.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.packs.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.settings.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.runs.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.memory.routes	PASS	FAIL	TBD	PASS	NA	Has GateChain
+engines.canvas_commands	PASS	FAIL	TBD	PASS	NA	Has GateChain
+engines.origin_snippets.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.persistence.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.routing.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.canvas_stream.router	FAIL	FAIL	TBD	FAIL	TBD	Missing Identity
+engines.feature_flags.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.config_store.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.registry.routes	PASS	FAIL	TBD	FAIL	NA	
