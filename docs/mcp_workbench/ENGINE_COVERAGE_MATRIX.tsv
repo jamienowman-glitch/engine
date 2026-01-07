@@ -41,7 +41,7 @@ engines.firearms.routes	PASS	FAIL	TBD	FAIL	NA
 engines.memory.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-015
 engines.actions.router	PASS	FAIL	TBD	PASS	NA	Has GateChain
 engines.nexus.raw_storage.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-014
-engines.nexus.atoms.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.nexus.atoms.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-019
 engines.nexus.cards.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-013
 engines.nexus.index.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-016
 engines.nexus.packs.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-017
