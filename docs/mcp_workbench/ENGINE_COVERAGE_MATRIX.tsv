@@ -1,7 +1,7 @@
 Router Group	Identity Enforced	Error Envelope	Routing/Durability	GateChain	Streaming Semantics	Notes/Evidence
-engines.chat.service.ws_transport	FAIL	FAIL	TBD	PASS	FAIL	Missing RequestContext; GateChain present?
-engines.chat.service.sse_transport	PASS	FAIL	TBD	FAIL	PASS	
-engines.chat.service.routes	PASS	FAIL	TBD	FAIL	NA	
+engines.chat.service.ws_transport	PASS	PASS	TBD	PASS	FAIL	Manual verification: Uses internal envelope helpers.
+engines.chat.service.sse_transport	PASS	PASS	TBD	PASS	PASS	Manual verification: Uses internal envelope helpers.
+engines.chat.service.routes	PASS	PASS	TBD	FAIL	NA	
 engines.media.service.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.media_v2.routes	PASS	PASS	TBD	FAIL	NA	Only one with ErrorEnvelope
 engines.maybes.routes	PASS	FAIL	TBD	FAIL	NA	
@@ -19,7 +19,7 @@ engines.video_render.routes	PASS	FAIL	TBD	FAIL	NA
 engines.video_360.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.video_regions.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.audio_service.routes	PASS	FAIL	TBD	FAIL	NA	
-engines.video_mask.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.video_mask.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-003
 engines.video_multicam.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
 engines.video_visual_meta.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.audio_semantic_timeline.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
