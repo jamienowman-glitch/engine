@@ -20,7 +20,7 @@ engines.video_360.routes	PASS	FAIL	TBD	FAIL	NA
 engines.video_regions.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.audio_service.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.video_mask.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-003
-engines.video_multicam.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.video_multicam.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-004
 engines.video_visual_meta.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.audio_semantic_timeline.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
 engines.audio_voice_enhance.routes	PASS	FAIL	TBD	FAIL	NA	
