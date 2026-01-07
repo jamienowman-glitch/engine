@@ -8,7 +8,7 @@ from engines.maybes.schemas import (
     MaybeSourceType,
 )
 from engines.maybes.service import MaybesNotFound, MaybesService, MaybesError
-from engines.maybes.repository import MaybesRepository, InMemoryMaybesRepository
+from engines.maybes.repository import MaybesRepository
 
 __all__ = [
     "MaybeItem",
@@ -18,7 +18,7 @@ __all__ = [
     "MaybeSourceType",
     "MaybesService",
     "MaybesRepository",
-    "InMemoryMaybesRepository",
     "MaybesNotFound",
     "MaybesError",
 ]
+

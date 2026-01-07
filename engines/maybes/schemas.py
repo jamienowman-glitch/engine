@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+from enum import Enum
 
 from pydantic import BaseModel, Field
+
+
+class MaybeSourceType(str, Enum):
+    user = "user"
+    agent = "agent"
+
 
 
 def _now() -> datetime:
