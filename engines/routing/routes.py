@@ -1,13 +1,15 @@
 """Routing control-plane API routes."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from engines.common.identity import RequestContext, RequestContextBuilder
+from engines.common.error_envelope import build_error_envelope, error_response
+from engines.common.identity import RequestContext, RequestContextBuilder, get_request_context
+from engines.nexus.hardening.gate_chain import GateChain, get_gate_chain
 from engines.routing.registry import ResourceRoute
 from engines.routing.service import RoutingControlPlaneService
 
@@ -62,6 +64,22 @@ class ResourceRouteDiagnosticsResponse(BaseModel):
     updated_at: str
 
 
+class RouteCoverageEntry(BaseModel):
+    resource_kind: str
+    status: Literal["available", "missing"]
+    backend_type: Optional[str] = None
+    tier: Optional[str] = None
+    health_status: Optional[str] = None
+    config: Optional[dict] = None
+    error: Optional[dict] = None
+
+
+class RouteCoverageResponse(BaseModel):
+    tenant_id: str
+    env: str
+    resources: List[RouteCoverageEntry]
+
+
 class RouteSwitchRequest(BaseModel):
     """Lane 5: Request schema for manual route switching."""
     backend_type: str = Field(..., description="New backend type to switch to")
@@ -77,14 +95,16 @@ class RouteSwitchRequest(BaseModel):
 @router.post("/routes", response_model=ResourceRouteResponse)
 async def upsert_route(
     req: ResourceRouteCreate,
-    context: RequestContext = Depends(RequestContextBuilder.from_request),
+    context: RequestContext = Depends(get_request_context),
+    gate_chain: GateChain = Depends(get_gate_chain),
 ) -> dict:
-    """Upsert a routing registry entry.
-    
-    - Accepts surface_id aliases (e.g., SQUARED²)
-    - Stores canonical ASCII form internally
-    - Emits audit event and stream event (ROUTE_CHANGED)
-    """
+    """Upsert a routing registry entry."""
+    # Enforce GateChain
+    try:
+        gate_chain.run(ctx=context, action="routing_upsert", resource_kind=req.resource_kind)
+    except HTTPException as exc:
+        raise exc
+
     service = RoutingControlPlaneService()
     
     route = ResourceRoute(
@@ -122,18 +142,15 @@ async def get_route(
     tenant_id: str,
     env: str,
     project_id: Optional[str] = Query(None),
-    context: RequestContext = Depends(RequestContextBuilder.from_request),
+    context: RequestContext = Depends(get_request_context),
 ) -> dict:
-    """Get a routing entry by resource_kind, tenant_id, and env.
-    
-    Surface normalization is applied: accepts aliases and returns canonical form.
-    """
+    """Get a routing entry by resource_kind, tenant_id, and env."""
     service = RoutingControlPlaneService()
     
     route = service.get_route(resource_kind, tenant_id, env, project_id)
     
     if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
+        return error_response(code="routing.route_not_found", message="Route not found", status_code=404)
     
     return {
         "id": route.id,
@@ -154,14 +171,9 @@ async def get_route(
 async def list_routes(
     resource_kind: Optional[str] = Query(None),
     tenant_id: Optional[str] = Query(None),
-    context: RequestContext = Depends(RequestContextBuilder.from_request),
+    context: RequestContext = Depends(get_request_context),
 ) -> list:
-    """List routes matching optional filters.
-    
-    Query params:
-      - resource_kind: filter by resource kind
-      - tenant_id: filter by tenant
-    """
+    """List routes matching optional filters."""
     service = RoutingControlPlaneService()
     
     routes = service.list_routes(resource_kind, tenant_id)
@@ -183,6 +195,7 @@ async def list_routes(
         for r in routes
     ]
 
+
 # ===== Lane 5 Endpoints (t_system Surfacing) =====
 
 @router.get("/diagnostics/{resource_kind}/{tenant_id}/{env}", response_model=ResourceRouteDiagnosticsResponse)
@@ -191,24 +204,15 @@ async def get_route_diagnostics(
     tenant_id: str,
     env: str,
     project_id: Optional[str] = Query(None),
-    context: RequestContext = Depends(RequestContextBuilder.from_request),
+    context: RequestContext = Depends(get_request_context),
 ) -> dict:
-    """Get route diagnostics (read-only, no secrets).
-    
-    Lane 5: Provides t_system view of current routing with diagnostic metadata:
-    - Current backend_type and config (no secrets)
-    - Cost tier and notes
-    - Health status
-    - Switch history (previous backend, rationale, timestamp)
-    
-    Available to all modes/roles for diagnostic purposes.
-    """
+    """Get route diagnostics (read-only, no secrets)."""
     service = RoutingControlPlaneService()
     
     route = service.get_route(resource_kind, tenant_id, env, project_id)
     
     if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
+        return error_response(code="routing.route_not_found", message="Route not found", status_code=404)
     
     return {
         "id": route.id,
@@ -228,6 +232,61 @@ async def get_route_diagnostics(
     }
 
 
+CANONICAL_RESOURCE_KINDS = [
+    "chat_store",
+    "config_store",
+    "firearms_policy_store",
+    "strategy_policy_store",
+    "canvas_command_store",
+    "event_stream",
+]
+
+
+@router.get("/diagnostics/coverage/{tenant_id}/{env}", response_model=RouteCoverageResponse)
+async def get_route_coverage(
+    tenant_id: str,
+    env: str,
+    project_id: Optional[str] = Query(None),
+    context: RequestContext = Depends(get_request_context),
+) -> dict:
+    service = RoutingControlPlaneService()
+    entries: List[RouteCoverageEntry] = []
+
+    for resource_kind in CANONICAL_RESOURCE_KINDS:
+        route = service.get_route(resource_kind, tenant_id, env, project_id)
+        if route:
+            entries.append(
+                RouteCoverageEntry(
+                    resource_kind=resource_kind,
+                    status="available",
+                    backend_type=route.backend_type,
+                    tier=route.tier,
+                    health_status=route.health_status,
+                    config=route.config,
+                )
+            )
+        else:
+            envelope = build_error_envelope(
+                code=f"{resource_kind}.missing_route",
+                message=f"No routing configured for {resource_kind}",
+                status_code=503,
+                resource_kind=resource_kind,
+                details={
+                    "resource_kind": resource_kind,
+                    "tenant_id": tenant_id,
+                    "env": env,
+                },
+            )
+            entries.append(
+                RouteCoverageEntry(
+                    resource_kind=resource_kind,
+                    status="missing",
+                    error=envelope.error.model_dump(),
+                )
+            )
+
+    return RouteCoverageResponse(tenant_id=tenant_id, env=env, resources=entries).model_dump()
+
 @router.put("/routes/{resource_kind}/{tenant_id}/{env}/switch", response_model=ResourceRouteDiagnosticsResponse)
 async def switch_route_backend(
     resource_kind: str,
@@ -235,60 +294,50 @@ async def switch_route_backend(
     env: str,
     req: RouteSwitchRequest,
     project_id: Optional[str] = Query(None),
-    context: RequestContext = Depends(RequestContextBuilder.from_request),
+    context: RequestContext = Depends(get_request_context),
+    gate_chain: GateChain = Depends(get_gate_chain),
 ) -> dict:
-    """Switch backend for a route (manual switch with strategy lock guard).
-    
-    Lane 5: Allows t_system operators to manually flip backends with:
-    - Strategy lock enforcement (if configured for resource_kind)
-    - Audit trail (rationale + operator + timestamp)
-    - StreamEvent emission (ROUTE_BACKEND_SWITCHED)
-    - Switch history (previous backend, rationale preserved)
-    
-    Requires:
-    - rationale: reason for switch (mandatory for audit)
-    - strategy_lock_id: if strategy lock is required for this resource_kind
-    - new backend_type + config
-    
-    Guards:
-    - Strategy lock validation (if route.required=True or policy-driven)
-    - Audit event emission (routing:switch_backend)
-    - StreamEvent ROUTE_BACKEND_SWITCHED with rationale
-    """
+    """Switch backend for a route (manual switch with strategy lock guard)."""
+    # Enforce GateChain
+    try:
+        gate_chain.run(ctx=context, action="routing_switch_backend", resource_kind=resource_kind)
+    except HTTPException as exc:
+        raise exc
+
     service = RoutingControlPlaneService()
     
     # Get current route
     current_route = service.get_route(resource_kind, tenant_id, env, project_id)
     if not current_route:
-        raise HTTPException(status_code=404, detail="Route not found")
+        return error_response(code="routing.route_not_found", message="Route not found", status_code=404)
     
     # Lane 5: Strategy lock validation (if enabled)
     try:
         from engines.strategy_lock.service import get_strategy_lock_service
         lock_service = get_strategy_lock_service()
         
-        # Check if strategy lock is required for this route switch
-        # For now, check if lock_id provided or if resource_kind has global lock requirement
         if req.strategy_lock_id:
             try:
                 lock = lock_service.get_lock(context, req.strategy_lock_id)
-                # Verify lock covers this action
                 if "routing:switch_backend" not in (lock.allowed_actions or []):
-                    raise HTTPException(
+                    return error_response(
+                        code="strategy_lock.scope_mismatch",
+                        message=f"Strategy lock {req.strategy_lock_id} does not cover routing:switch_backend",
                         status_code=403,
-                        detail=f"Strategy lock {req.strategy_lock_id} does not cover routing:switch_backend"
+                        gate="strategy_lock"
                     )
                 if lock.status.value != "approved":
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f"Strategy lock {req.strategy_lock_id} is not approved (status: {lock.status})"
+                    return error_response(
+                         code="strategy_lock.not_approved",
+                         message=f"Strategy lock {req.strategy_lock_id} is not approved",
+                         status_code=403,
+                         gate="strategy_lock"
                     )
             except HTTPException:
                 raise
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Strategy lock validation failed: {e}")
+                return error_response(code="strategy_lock.validation_failed", message=f"Strategy lock validation failed: {e}", status_code=500)
     except ImportError:
-        # Strategy lock not available in this environment
         pass
     
     # Update route with new backend
@@ -301,12 +350,10 @@ async def switch_route_backend(
     if req.cost_notes:
         current_route.cost_notes = req.cost_notes
     
-    # Store switch history
     current_route.previous_backend_type = previous_backend
     current_route.switch_rationale = req.rationale
-    current_route.last_switch_time = None  # Will be set by service
+    current_route.last_switch_time = None
     
-    # Upsert with audit trail
     updated_route = service.upsert_route(current_route, context)
     
     return {

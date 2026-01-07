@@ -51,7 +51,7 @@ engines.nexus.memory.routes	PASS	FAIL	TBD	PASS	NA	Has GateChain
 engines.canvas_commands	PASS	FAIL	TBD	PASS	NA	Has GateChain
 engines.origin_snippets.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.persistence.routes	PASS	FAIL	TBD	FAIL	NA	
-engines.routing.routes	FAIL	FAIL	TBD	FAIL	NA	Missing Identity
+engines.routing.routes	PASS	PASS	TBD	PASS	NA	Fixed in ENG-STD-008
 engines.canvas_stream.router	FAIL	FAIL	TBD	FAIL	TBD	Missing Identity
 engines.feature_flags.routes	PASS	FAIL	TBD	FAIL	NA	
 engines.config_store.routes	PASS	FAIL	TBD	FAIL	NA	
