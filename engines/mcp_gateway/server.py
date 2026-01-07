@@ -129,23 +129,17 @@ def create_app() -> FastAPI:
         if not scope:
             raise HTTPException(status_code=404, detail=f"Scope {req.tool_id}.{req.scope_name} not found")
     
-        # Check Policy Requirements
-        policy_svc = get_policy_service()
-        requirements = policy_svc.get_requirements(req.tool_id, req.scope_name)
+        # Check Policy Requirements (GateChain)
+        from engines.nexus.hardening.gate_chain import get_gate_chain
         
-        if requirements.firearms:
-             # Check if context has firearms grant?
-             firearms_header = request.headers.get("x-firearms-grant")
-             if not firearms_header:
-                 from engines.common.error_envelope import error_response
-                 error_response(
-                     code="firearms.required",
-                     message=f"Firearms grant required for {req.tool_id}.{req.scope_name}",
-                     status_code=403,
-                     gate="firearms",
-                     action_name=req.scope_name,
-                     resource_kind="tool"
-                 )
+        action_key = f"{req.tool_id}.{req.scope_name}"
+        get_gate_chain().run(
+            ctx, 
+            action=action_key, 
+            surface=ctx.surface_id, 
+            subject_type="tool",
+            subject_id=req.tool_id
+        )
 
         # Validate arguments
         try:
