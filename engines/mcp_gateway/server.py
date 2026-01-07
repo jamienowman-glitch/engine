@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -12,6 +12,7 @@ from engines.common.error_envelope import build_error_envelope, ErrorEnvelope, E
 from engines.common.identity import RequestContext, get_request_context
 from engines.mcp_gateway.inventory import get_inventory
 from engines.mcp_gateway.tools import echo, media_v2
+from engines.policy.service import get_policy_service
 
 # --- Error Handling ---
 
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     @app.post("/tools/call")
     async def call_tool(
         req: ToolCallRequest,
+        request: Request,
         ctx: RequestContext = Depends(get_request_context)
     ):
         inventory = get_inventory()
@@ -127,14 +129,30 @@ def create_app() -> FastAPI:
         if not scope:
             raise HTTPException(status_code=404, detail=f"Scope {req.tool_id}.{req.scope_name} not found")
     
+        # Check Policy Requirements
+        policy_svc = get_policy_service()
+        requirements = policy_svc.get_requirements(req.tool_id, req.scope_name)
+        
+        if requirements.firearms:
+             # Check if context has firearms grant?
+             firearms_header = request.headers.get("x-firearms-grant")
+             if not firearms_header:
+                 from engines.common.error_envelope import error_response
+                 error_response(
+                     code="firearms.required",
+                     message=f"Firearms grant required for {req.tool_id}.{req.scope_name}",
+                     status_code=403,
+                     gate="firearms",
+                     action_name=req.scope_name,
+                     resource_kind="tool"
+                 )
+
         # Validate arguments
         try:
             validated_args = scope.input_model(**req.arguments)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Argument validation failed: {str(e)}")
         
-        # TODO: Firearms check would go here.
-    
         # Execute
         try:
             result = await scope.handler(ctx, validated_args)
