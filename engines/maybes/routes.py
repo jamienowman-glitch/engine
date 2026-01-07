@@ -5,8 +5,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from engines.common.error_envelope import error_response
 from engines.common.identity import RequestContext, get_request_context
 from engines.identity.auth import get_auth_context, require_tenant_membership
+from engines.nexus.hardening.gate_chain import GateChain, get_gate_chain
 from engines.maybes.schemas import MaybeCreate, MaybeQuery, MaybeUpdate
 from engines.maybes.service import MaybesError, MaybesNotFound, MaybesService
 
@@ -21,20 +23,33 @@ def _parse_tags(tags: Optional[str]) -> list[str] | None:
     return parts or None
 
 
+def _enforce_gate(gate_chain: GateChain, ctx: RequestContext, action: str):
+    try:
+        gate_chain.run(ctx=ctx, action=action, resource_kind="maybe_note")
+    except HTTPException as exc:
+        raise exc
+
+
 @router.post("/notes")
 @router.post("/maybes/items")
-def create_note(req: MaybeCreate, context: RequestContext = Depends(get_request_context), auth=Depends(get_auth_context)):
+def create_note(
+    req: MaybeCreate,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+    gate_chain: GateChain = Depends(get_gate_chain),
+):
     require_tenant_membership(auth, context.tenant_id)
+    _enforce_gate(gate_chain, context, "maybes_create")
     try:
         return service.create_item(req, context)
     except MaybesNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        return error_response(code="maybes.not_found", message=str(exc), status_code=404)
     except MaybesError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        return error_response(code="maybes.invalid_request", message=str(exc), status_code=400)
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        return error_response(code="maybes.service_unavailable", message=str(exc), status_code=503)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        return error_response(code="maybes.create_failed", message=str(exc), status_code=500)
 
 
 @router.get("/notes")
@@ -62,9 +77,9 @@ def list_notes(
         items = service.list_items(context, query)
         return {"items": items}
     except MaybesError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        return error_response(code="maybes.query_failed", message=str(exc), status_code=400)
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        return error_response(code="maybes.service_unavailable", message=str(exc), status_code=503)
 
 
 @router.get("/notes/{item_id}")
@@ -78,9 +93,9 @@ def get_note(
     try:
         return service.get_item(context, item_id)
     except MaybesNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        return error_response(code="maybes.not_found", message=str(exc), status_code=404)
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        return error_response(code="maybes.service_unavailable", message=str(exc), status_code=503)
 
 
 @router.put("/notes/{item_id}")
@@ -90,16 +105,18 @@ def update_note(
     req: MaybeUpdate,
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
+    gate_chain: GateChain = Depends(get_gate_chain),
 ):
     require_tenant_membership(auth, context.tenant_id)
+    _enforce_gate(gate_chain, context, "maybes_update")
     try:
         return {"item": service.update_item(context, item_id, req)}
     except MaybesNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        return error_response(code="maybes.not_found", message=str(exc), status_code=404)
     except MaybesError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        return error_response(code="maybes.invalid_update", message=str(exc), status_code=400)
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        return error_response(code="maybes.service_unavailable", message=str(exc), status_code=503)
 
 
 @router.delete("/notes/{item_id}")
@@ -108,12 +125,14 @@ def delete_note(
     item_id: str,
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
+    gate_chain: GateChain = Depends(get_gate_chain),
 ):
     require_tenant_membership(auth, context.tenant_id)
+    _enforce_gate(gate_chain, context, "maybes_delete")
     try:
         service.delete_item(context, item_id)
         return {"status": "deleted"}
     except MaybesNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        return error_response(code="maybes.not_found", message=str(exc), status_code=404)
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        return error_response(code="maybes.service_unavailable", message=str(exc), status_code=503)
