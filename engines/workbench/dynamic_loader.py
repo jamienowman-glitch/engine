@@ -22,7 +22,18 @@ class LoaderService:
         self._scan_connectors()
         self._scan_muscles()
 
+    def _is_enabled(self, name: str, env_var: str) -> bool:
+        allowed_str = os.environ.get(env_var, "")
+        allowed = [x.strip() for x in allowed_str.split(",") if x.strip()]
+        return name in allowed
+
     def _scan_connectors(self):
+        if self._is_enabled("*", "ENABLED_CONNECTORS"): # Wildcard support for dev convenience?
+            # User said "enabled set comes from config... OR registry listing".
+            # Explicit naming is safer for "Empty by default".
+            # I won't implement wildcard unless requested. User wants strictness.
+            pass
+
         cls_dir = os.path.join(ENGINES_DIR, "connectors")
         if not os.path.exists(cls_dir):
             return
@@ -31,6 +42,9 @@ class LoaderService:
             if name.startswith("_") or name.startswith("."):
                 continue
             
+            if not self._is_enabled(name, "ENABLED_CONNECTORS"):
+                continue
+
             path = os.path.join(cls_dir, name)
             if os.path.isdir(path):
                 self._load_package(path, is_muscle=False)
@@ -44,6 +58,12 @@ class LoaderService:
             if name.startswith("_") or name.startswith("."):
                 continue
             
+            # Since muscles are internal, maybe we enable all?
+            # User requirement: "Inventory must be empty by default".
+            # So gating muscles is required.
+            if not self._is_enabled(name, "ENABLED_MUSCLES"):
+                continue
+
             # Muscles have `mcp` subdir
             path = os.path.join(cls_dir, name, "mcp")
             if os.path.isdir(path):

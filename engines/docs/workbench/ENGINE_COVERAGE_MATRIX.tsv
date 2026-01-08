@@ -1,0 +1,7 @@
+ToolID	Scope	HasIdentity	HasEnvelope	HasGateChain	Durability
+echo	echo.ping	Yes	Yes	No	N/A
+echo	echo.echo	Yes	Yes	No	N/A
+media_v2	media.list	Yes	Yes	No	N/A
+media_v2	media.get	Yes	Yes	No	N/A
+shopify	shopify.get_orders	Yes	Yes	Yes	N/A
+salesforce	salesforce.push	Yes	Yes	Yes	Yes

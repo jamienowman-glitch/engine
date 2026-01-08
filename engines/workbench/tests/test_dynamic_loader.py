@@ -35,7 +35,10 @@ def test_loader_populates_connector(clean_inventory):
         f.write('from pydantic import BaseModel\nclass RunInput(BaseModel):\n  x: int\nasync def handle_run(ctx, args): return "ok"')
 
     try:
-        loader.load_all()
+        # Must enable "test_conn" (directory name)
+        with patch.dict(os.environ, {"ENABLED_CONNECTORS": "test_conn"}):
+            loader.load_all()
+        
         tools = clean_inventory.list_tools()
         assert len(tools) == 1
         assert tools[0].id == "test_tool"
@@ -54,11 +57,10 @@ def test_loader_populates_muscle(clean_inventory):
         f.write('from pydantic import BaseModel\nclass FlexInput(BaseModel):\n  power: int\nasync def handle_flex(ctx, args): return "strong"')
 
     try:
-        loader.load_all()
-        # Note: if previous test failed cleanup, we might have 2 tools
-        # But fixtures should handle it. Assuming sequential run.
-        # But load_all is additive.
-        # Let's check specifically for test_muscle
+        # Must enable "test_muscle" (directory name)
+        with patch.dict(os.environ, {"ENABLED_MUSCLES": "test_muscle"}):
+            loader.load_all()
+        
         assert get_inventory().get_tool("test_muscle") is not None
     finally:
         shutil.rmtree("engines/muscles/test_muscle", ignore_errors=True)
