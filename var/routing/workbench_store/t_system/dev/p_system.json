@@ -1,0 +1,14 @@
+{
+    "id": "route_workbench_system_dev",
+    "resource_kind": "workbench_store",
+    "tenant_id": "t_system",
+    "env": "dev",
+    "project_id": "p_system",
+    "backend_type": "filesystem",
+    "config": {
+        "base_path": "/Users/jaynowman/dev/northstar-engines/var/workbench"
+    },
+    "required": true,
+    "created_at": "2026-01-08T12:00:00Z",
+    "updated_at": "2026-01-08T12:00:00Z"
+}

@@ -22,6 +22,11 @@ class LoaderService:
         self._scan_connectors()
         self._scan_muscles()
 
+    def reload(self):
+        """Clears inventory and reloads all tools from disk."""
+        self._inventory.clear()
+        self.load_all()
+
     def _is_enabled(self, name: str, env_var: str) -> bool:
         allowed_str = os.environ.get(env_var, "")
         allowed = [x.strip() for x in allowed_str.split(",") if x.strip()]

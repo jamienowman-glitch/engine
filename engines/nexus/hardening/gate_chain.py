@@ -62,11 +62,22 @@ class GateChain:
         subject_id: Optional[str] = None,
         *,
         skip_metrics: bool = False,
+        budget_check: Optional[Dict[str, Any]] = None, # {cost, cap, tool_id}
     ) -> None:
         surface_key = surface or "nexus"
         gate_blocked = None
         reason_code = None
         
+        # Worker 7: Tool Budget Check (W-07)
+        if budget_check:
+             try:
+                 self._enforce_tool_budget(ctx, action, budget_check)
+             except HTTPException as exc:
+                 gate_blocked = "budget"
+                 reason_code, details = self._extract_error_fields(exc)
+                 self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
+                 raise
+
         try:
             self.kill_switch.ensure_action_allowed(ctx, action)
         except HTTPException as exc:
@@ -304,6 +315,33 @@ class GateChain:
                     "total_cost": float(total),
                     "threshold": float(policy.threshold),
                 },
+            )
+
+    def _enforce_tool_budget(self, ctx: RequestContext, action: str, check: Dict[str, Any]) -> None:
+        """Enforce per-tool budget limits (W-07)."""
+        cost = Decimal(str(check.get("cost") or 0))
+        cap = Decimal(str(check.get("daily_cap") or 0))
+        tool_id = check.get("tool_id")
+        
+        if cap <= 0:
+            return # No cap
+            
+        # Get current spend
+        spend = self.budget_service.get_tool_spend(ctx, tool_id, window_days=1)
+        
+        if spend + cost > cap:
+            error_response(
+                code="budget.daily_cap_exceeded",
+                message=f"Daily budget cap exceeded for tool {tool_id}",
+                status_code=403,
+                gate="budget",
+                action_name=action,
+                details={
+                    "tool_id": tool_id,
+                    "spend_today": float(spend),
+                    "cost_requested": float(cost),
+                    "daily_cap": float(cap)
+                }
             )
 
     def _enforce_kpi(self, ctx: RequestContext, surface: str, action: str) -> None:

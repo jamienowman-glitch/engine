@@ -10,7 +10,12 @@ class ToolDefinition(BaseModel):
     id: str
     name: str
     summary: str
-    scopes: Dict[str, Dict[str, Any]] # scope_name -> json schema
+    metrics: List[MetricDefinition] = Field(default_factory=list)
+
+class MetricDefinition(BaseModel):
+    name: str
+    description: str
+    unit: str # count, ms, currency
 
 class PortableMCPPackage(BaseModel):
     id: str # e.g. "com.acme.echo"
@@ -27,8 +32,18 @@ class PolicyConfig(BaseModel):
     firearms: bool = False
     required_licenses: List[str] = Field(default_factory=list) # e.g. ["finance", "hr"]
 
+class UTMConfig(BaseModel):
+    platform: str
+    content_type: str
+
+class BudgetConfig(BaseModel):
+    cost_per_call: float = 0.0
+    free_tier_daily_cap: int = 100
+
 class ScopeOverlay(BaseModel):
     policy: Optional[PolicyConfig] = None
+    utm_config: Optional[UTMConfig] = None
+    budget_config: Optional[BudgetConfig] = None
     # Future: routing_guardrails, telemetry_sampling
 
 class ToolOverlay(BaseModel):

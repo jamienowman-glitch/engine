@@ -32,14 +32,17 @@ class InMemoryFirearmsRepository:
         self._bindings: Dict[str, FirearmBinding] = {}
 
     def create_firearm(self, ctx: RequestContext, firearm: Firearm) -> Firearm:
-        self._firearms[firearm.id] = firearm
+        key = f"{ctx.tenant_id}:{firearm.id}"
+        self._firearms[key] = firearm
         return firearm
 
     def get_firearm(self, ctx: RequestContext, firearm_id: str) -> Optional[Firearm]:
-        return self._firearms.get(firearm_id)
+        key = f"{ctx.tenant_id}:{firearm_id}"
+        return self._firearms.get(key)
 
     def list_firearms(self, ctx: RequestContext) -> List[Firearm]:
-        return list(self._firearms.values())
+        prefix = f"{ctx.tenant_id}:"
+        return [f for k, f in self._firearms.items() if k.startswith(prefix)]
 
     def create_grant(self, ctx: RequestContext, grant: FirearmGrant) -> FirearmGrant:
         self._grants[grant.id] = grant

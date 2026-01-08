@@ -61,6 +61,26 @@ class BudgetService:
             offset=offset,
         )
 
+    def get_tool_spend(
+        self,
+        ctx: RequestContext,
+        tool_id: str,
+        window_days: int = 1
+    ) -> Decimal:
+        """Calculate total spend for a tool over the last N days."""
+        until = datetime.now(timezone.utc)
+        since = until - timedelta(days=window_days)
+        events = self.repo.list_usage(
+            tenant_id=ctx.tenant_id,
+            env=ctx.env,
+            tool_id=tool_id,
+            since=since,
+            until=until,
+            limit=10_000 # Assume reasonable limit for aggregation
+        )
+        total = sum((ev.cost for ev in events), Decimal("0"))
+        return total
+
     def summary(
         self,
         ctx: RequestContext,

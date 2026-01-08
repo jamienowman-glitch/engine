@@ -1,0 +1,9 @@
+id: conn.generic.remote
+name: Generic Remote MCP
+summary: Proxies calls to a remote MCP server via HTTP/JSON-RPC.
+scopes:
+  - name: proxy
+    description: Proxy a tool call to the remote server.
+    input_model: RemoteCallPayload
+    handler: proxy_call
+    requires_firearms: false

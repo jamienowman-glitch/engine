@@ -19,6 +19,7 @@ class BudgetUsageRepository(Protocol):
         env: str,
         surface: Optional[str] = None,
         provider: Optional[str] = None,
+        tool_id: Optional[str] = None,
         model_or_plan_id: Optional[str] = None,
         tool_type: Optional[str] = None,
         since: Optional[datetime] = None,
@@ -130,6 +131,7 @@ class FilesystemBudgetUsageRepository(BudgetUsageRepository):
         events: List[UsageEvent],
         surface: Optional[str],
         provider: Optional[str],
+        tool_id: Optional[str],
         model_or_plan_id: Optional[str],
         tool_type: Optional[str],
         since: Optional[datetime],
@@ -172,7 +174,7 @@ class FilesystemBudgetUsageRepository(BudgetUsageRepository):
         offset: int = 0,
     ) -> List[UsageEvent]:
         events = self._load_events(tenant_id, env)
-        filtered = self._apply_filters(events, surface, provider, model_or_plan_id, tool_type, since, until)
+        filtered = self._apply_filters(events, surface, provider, tool_id, model_or_plan_id, tool_type, since, until)
         return filtered[offset : offset + limit]
 
     def get_totals(
@@ -247,6 +249,8 @@ class FirestoreBudgetUsageRepository(InMemoryBudgetUsageRepository):
             query = query.where("surface", "==", surface)
         if provider:
             query = query.where("provider", "==", provider)
+        if tool_id:
+            query = query.where("tool_id", "==", tool_id)
         if model_or_plan_id:
             query = query.where("model_or_plan_id", "==", model_or_plan_id)
         if tool_type:

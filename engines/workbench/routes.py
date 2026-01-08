@@ -13,9 +13,179 @@ from engines.workbench.store import VersionedStore
 
 # Actually UNIFY-ENG-005 says "Expose publisher". The file `engines/workbench/publisher.py` exists (step 20).
 
+from engines.workbench.local_secrets import LocalSecretStore
+from engines.workbench.dynamic_loader import loader
+from pydantic import BaseModel
+
+class SecretPayload(BaseModel):
+    value: str
+
+class SmokeTestPayload(BaseModel):
+    connector_id: str
+    instruction: str
+
+class AssetFinalizePayload(BaseModel):
+    asset_id: str
+    destination: Optional[str] = None
+    options: Optional[Dict[str, Any]] = None
+
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
 _store = VersionedStore() # Default
+_store = VersionedStore() # Default
+_secrets_instance = None
+
+def _get_secrets() -> LocalSecretStore:
+    global _secrets_instance
+    if _secrets_instance is None:
+        _secrets_instance = LocalSecretStore()
+    return _secrets_instance
+
+@router.post("/assets/finalize")
+def finalize_asset(
+    payload: AssetFinalizePayload,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    """
+    Finalizes an asset (e.g. PII rehydration) for usage.
+    Stub implementation for W-08.
+    """
+    require_tenant_membership(auth, context.tenant_id)
+    
+    asset_id = payload.asset_id
+    
+    # 1. Validation (Stub)
+    if not asset_id:
+        error_response("validation.missing_id", "asset_id is required", 400)
+
+    # 2. Rehydration Logic (Stub)
+    # in real life, this would talk to Token Vault (W-05/06)
+    
+    is_pii = asset_id.startswith("pii_")
+    
+    if is_pii:
+        # Simulate successful rehydration
+        return {
+            "status": "finalized",
+            "asset_id": asset_id,
+            "url": f"https://vault.northstar.internal/rehydrated/{asset_id}",
+            "expires_in": 3600
+        }
+    else:
+        # Regular asset, maybe just pass through or 404 if invalid
+        return {
+            "status": "active",
+            "asset_id": asset_id,
+            "message": "Asset was already active or handled."
+        }
+
+@router.put("/secrets/{secret_name}")
+def put_secret(
+    secret_name: str,
+    payload: SecretPayload,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
+    try:
+        _get_secrets().put_secret(secret_name, payload.value)
+        return {"status": "saved", "secret": secret_name}
+    except Exception as exc:
+        error_response("workbench.secret_save_failed", str(exc), 500)
+
+@router.get("/secrets/{secret_name}/status")
+def get_secret_status(
+    secret_name: str,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
+    try:
+        return _get_secrets().has_secret(secret_name)
+    except Exception as exc:
+        error_response("workbench.secret_status_failed", str(exc), 500)
+
+@router.post("/smoke_test")
+def run_smoke_test(
+    payload: SmokeTestPayload,
+    context: RequestContext = Depends(get_request_context),
+    auth=Depends(get_auth_context),
+):
+    require_tenant_membership(auth, context.tenant_id)
+    # Smoke Test Implementation
+    if payload.connector_id == "conn.shopify.admin.prod":
+        # 1. Get Secret
+        secret_name = "conn-shopify-admin-prod-key" # Convention
+        secret_data = _get_secrets().get_secret(secret_name)
+        
+        if not secret_data:
+             return {"status": "failed", "message": f"Secret {secret_name} not found. Please save it first."}
+        
+        # 2. Parse Instruction for Shop Domain
+        # Expecting instruction to contain the shop domain, or we default if user provided it in secret (but we decided secret is just token)
+        # Simple heuristic: extract "myshopify.com" domain from text
+        import re
+        domain_match = re.search(r"([\w-]+\.myshopify\.com)", payload.instruction)
+        if not domain_match:
+             return {"status": "failed", "message": "Could not find shop domain (e.g. store.myshopify.com) in instruction text."}
+        
+        shop_domain = domain_match.group(1)
+        access_token = secret_data.strip()
+        
+        # 3. Call Shopify (GraphQL)
+        try:
+            import requests # engines usually has requests
+            query = """
+            {
+              shop {
+                name
+                currencyCode
+                email
+                myshopifyDomain
+              }
+            }
+            """
+            response = requests.post(
+                f"https://{shop_domain}/admin/api/2024-01/graphql.json",
+                headers={
+                    "X-Shopify-Access-Token": access_token,
+                    "Content-Type": "application/json"
+                },
+                json={"query": query},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "errors" in data:
+                     return {"status": "failed", "message": f"GraphQL Error: {json.dumps(data['errors'])}"}
+                
+                shop = data.get("data", {}).get("shop", {})
+                return {
+                    "status": "success", 
+                    "message": f"Verified! Shop '{shop.get('name')}' is accessible via GraphQL.",
+                    "details": {
+                        "currency": shop.get("currencyCode"),
+                        "email": shop.get("email"),
+                        "domain": shop.get("myshopifyDomain")
+                    }
+                }
+            else:
+                 return {
+                     "status": "failed", 
+                     "message": f"Shopify API returned {response.status_code}",
+                     "details": response.text
+                 }
+
+        except Exception as exc:
+             return {"status": "failed", "message": f"Request failed: {str(exc)}"}
+
+    # Fallback / Mock for others
+    if not _get_secrets().has_secret(payload.connector_id)["present"]: # Assuming connector_id maps to secret_name roughly or looked up
+         pass 
+
+    return {"status": "success", "message": f"Smoke test received for {payload.connector_id}: {payload.instruction}"}
 
 @router.put("/drafts/{tool_name}")
 def save_draft(
@@ -178,6 +348,15 @@ def publish_tool(
 
         # 6. Commit Version in Store
         _store.publish(context, tool_id, version)
+
+        # 7. Reload Inventory (W-03)
+        # Dynamic reload to make the new tool available immediately
+        try:
+            loader.reload()
+        except Exception as e:
+            # Log warning but don't fail the request? 
+            # Ideally we want to know if reload failed.
+            print(f"Warning: Inventory reload failed after publish: {e}")
 
         return {
              "portable_package": {

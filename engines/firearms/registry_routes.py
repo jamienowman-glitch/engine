@@ -47,3 +47,33 @@ def create_license_type(
             status_code=500,
             resource_kind="firearms_registry",
         )
+
+@router.get("/inspect")
+def inspect_policy(
+    tool_id: str,
+    scope_name: str,
+    context: RequestContext = Depends(get_request_context),
+    service: FirearmsService = Depends(get_firearms_service),
+) -> dict:
+    # 1. Construct action key
+    action_name = f"{tool_id}.{scope_name}"
+    
+    # 2. Check binding (direct repo access for raw policy)
+    binding = service.repo.get_binding(context, action_name)
+    
+    requires_firearms = False
+    details = {}
+    
+    if binding:
+        requires_firearms = True
+        details = {
+            "firearm_id": binding.firearm_id,
+            "strategy_lock_required": binding.strategy_lock_required
+        }
+        
+    return {
+        "tool_id": tool_id,
+        "scope_name": scope_name,
+        "requires_firearms": requires_firearms,
+        "details": details
+    }

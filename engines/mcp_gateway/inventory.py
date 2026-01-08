@@ -37,6 +37,10 @@ class Inventory:
     def register_tool(self, tool: Tool) -> None:
         self._tools[tool.id] = tool
 
+    def clear(self) -> None:
+        """Resets the inventory, clearing all registered tools."""
+        self._tools.clear()
+
     def get_tool(self, tool_id: str) -> Optional[Tool]:
         return self._tools.get(tool_id)
 
