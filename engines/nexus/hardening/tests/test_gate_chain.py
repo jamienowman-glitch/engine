@@ -10,15 +10,43 @@ from fastapi import HTTPException
 from engines.budget.models import BudgetPolicy
 from engines.budget.repository import InMemoryBudgetPolicyRepository
 from engines.common.identity import RequestContext
+from engines.firearms.models import FirearmDecision
 from engines.kill_switch.models import KillSwitchUpdate
 from engines.kill_switch.repository import InMemoryKillSwitchRepository
 from engines.kill_switch.service import KillSwitchService
 from engines.nexus.hardening.gate_chain import GateChain
 
 
+@pytest.fixture(autouse=True)
+def fake_strategy_policy_tabular(monkeypatch):
+    class FakeTabularStoreService:
+        _tables: dict[str, dict[str, dict]] = {}
+
+        def __init__(self, context, resource_kind="strategy_policy_store"):
+            self.context = context
+            self.resource_kind = resource_kind
+
+        def upsert(self, table_name, key, data):
+            table = FakeTabularStoreService._tables.setdefault(table_name, {})
+            table[key] = data
+
+        def get(self, table_name, key):
+            return FakeTabularStoreService._tables.get(table_name, {}).get(key)
+
+        def list_by_prefix(self, table_name, key_prefix):
+            table = FakeTabularStoreService._tables.get(table_name, {})
+            return [record for k, record in table.items() if k.startswith(key_prefix)]
+
+    FakeTabularStoreService._tables = {}
+    monkeypatch.setattr("engines.strategy_lock.policy.TabularStoreService", FakeTabularStoreService)
+
+
 class _AlwaysAllowFirearms:
     def require_licence_or_raise(self, *args, **kwargs):
         return None
+
+    def check_access(self, *args, **kwargs):
+        return SimpleNamespace(allowed=True, reason="pass", strategy_lock_required=False, required_license_types=[])
 
 
 class _AlwaysAllowStrategyLock:
@@ -36,7 +64,10 @@ class _StubBudgetService:
 
 class _StubKpiService:
     def list_corridors(self, ctx, surface):
-        return [object()]
+        return [SimpleNamespace(kpi_name="kpi_demo", floor=None, ceiling=None)]
+
+    def latest_raw_measurement(self, ctx, surface, kpi_name):
+        return None
 
 
 class _StubTemperatureService:
@@ -95,15 +126,25 @@ def test_kill_switch_blocks() -> None:
     with pytest.raises(HTTPException) as exc:
         gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
     assert exc.value.status_code == 403
-    assert exc.value.detail["error"] == "kill_switch_blocked"
+    detail = exc.value.detail["error"]
+    assert detail["code"] == "kill_switch.blocked"
+    assert detail["gate"] == "kill_switch"
+    assert detail["http_status"] == 403
 
 
-def test_strategy_lock_requires_three_wise() -> None:
-    class _RejectStrategyLock:
-        def require_strategy_lock_or_raise(self, ctx, surface, action):
-            raise HTTPException(status_code=409, detail={"error": "strategy_lock_required", "action": action})
+def test_strategy_lock_requires_three_wise(monkeypatch) -> None:
+    decision = SimpleNamespace(
+        allowed=False,
+        reason="strategy_lock_required",
+        lock_id="lock-1",
+        three_wise_verdict={"decision": "reject"},
+    )
+    monkeypatch.setattr(
+        "engines.nexus.hardening.gate_chain.resolve_strategy_lock",
+        lambda *args, **kwargs: decision,
+    )
 
-    gate_chain = _build_gate_chain(strategy_lock_service=_RejectStrategyLock())
+    gate_chain = _build_gate_chain()
     ctx = RequestContext(
         tenant_id="t_gate",
         env="dev",
@@ -115,8 +156,11 @@ def test_strategy_lock_requires_three_wise() -> None:
 
     with pytest.raises(HTTPException) as exc:
         gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
-    assert exc.value.status_code == 409
-    assert exc.value.detail["error"] == "strategy_lock_required"
+    detail = exc.value.detail["error"]
+    assert exc.value.status_code == 403
+    assert detail["code"] == "strategy_lock.approval_required"
+    assert detail["gate"] == "strategy_lock"
+    assert detail["http_status"] == 403
 
 
 def test_temperature_breach_blocks() -> None:
@@ -134,13 +178,21 @@ def test_temperature_breach_blocks() -> None:
     with pytest.raises(HTTPException) as exc:
         gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
     assert exc.value.status_code == 403
-    assert exc.value.detail["error"] == "temperature_breach"
+    detail = exc.value.detail["error"]
+    assert detail["code"] == "temperature_breach"
+    assert detail["gate"] == "temperature"
+    assert detail["http_status"] == 403
 
 
 def test_firearms_blocks_dangerous_action() -> None:
     class _RejectFirearms:
-        def require_licence_or_raise(self, *args, **kwargs):
-            raise HTTPException(status_code=403, detail={"error": "firearms_licence_required", "action": args[-1]})
+        def check_access(self, *args, **kwargs):
+            return FirearmDecision(
+                allowed=False,
+                reason="firearms.license_required",
+                firearm_id="firearm.danger",
+                required_license_types=["firearm.danger"],
+            )
 
     gate_chain = _build_gate_chain(
         firearms_service=_RejectFirearms(),
@@ -157,7 +209,10 @@ def test_firearms_blocks_dangerous_action() -> None:
     with pytest.raises(HTTPException) as exc:
         gate_chain.run(ctx, action="dangerous_tool_use", surface="cards", subject_type="card")
     assert exc.value.status_code == 403
-    assert exc.value.detail["error"] == "firearms_licence_required"
+    detail = exc.value.detail["error"]
+    assert detail["code"] == "firearms.license_required"
+    assert detail["gate"] == "firearms"
+    assert detail["http_status"] == 403
 
 
 def test_gate_chain_emits_audit_with_request_metadata() -> None:
@@ -202,7 +257,10 @@ def test_gate_chain_blocks_when_budget_policy_missing() -> None:
 
     with pytest.raises(HTTPException) as exc:
         gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
-    assert exc.value.detail["error"] == "budget_threshold_missing"
+    detail = exc.value.detail["error"]
+    assert detail["code"] == "budget_threshold_missing"
+    assert detail["gate"] == "budget"
+    assert detail["http_status"] == 403
 
 
 def test_gate_chain_blocks_when_budget_exceeded() -> None:
@@ -232,4 +290,7 @@ def test_gate_chain_blocks_when_budget_exceeded() -> None:
 
     with pytest.raises(HTTPException) as exc:
         gate_chain.run(ctx, action="card_create", surface="cards", subject_type="card")
-    assert exc.value.detail["error"] == "budget_threshold_exceeded"
+    detail = exc.value.detail["error"]
+    assert detail["code"] == "budget_threshold_exceeded"
+    assert detail["gate"] == "budget"
+    assert detail["http_status"] == 403

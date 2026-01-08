@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from engines.common.identity import RequestContext
+from engines.common.error_envelope import error_response
 from engines.kill_switch.models import KillSwitch, KillSwitchUpdate
 from engines.kill_switch.repository import FirestoreKillSwitchRepository, InMemoryKillSwitchRepository, KillSwitchRepository
 
@@ -43,12 +44,24 @@ class KillSwitchService:
         if not ks or not provider:
             return
         if provider.lower() in ks.disable_providers:
-            raise HTTPException(status_code=403, detail={"error": "kill_switch_blocked", "provider": provider})
+            error_response(
+                code="kill_switch.blocked",
+                message="Provider disabled by kill switch",
+                status_code=403,
+                gate="kill_switch",
+                details={"provider": provider},
+            )
 
     def ensure_action_allowed(self, ctx: RequestContext, action: str) -> None:
         ks = self.repo.get(ctx.tenant_id, ctx.env)
         if ks and action in ks.disabled_actions:
-            raise HTTPException(status_code=403, detail={"error": "kill_switch_blocked", "action": action})
+            error_response(
+                code="kill_switch.blocked",
+                message="Action disabled by kill switch",
+                status_code=403,
+                gate="kill_switch",
+                details={"action": action},
+            )
 
     def autonomy_allowed(self, ctx: RequestContext) -> bool:
         ks = self.repo.get(ctx.tenant_id, ctx.env)

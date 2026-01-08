@@ -1,41 +1,27 @@
-"""Service for handling canvas commands with strict concurrency control."""
 from __future__ import annotations
 
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Optional, List, Set
+from typing import Dict, Optional, List
 
 from fastapi import HTTPException
 
-from engines.canvas_commands.models import CommandEnvelope, RevisionResult
-from engines.chat.contracts import Contact, Message
-from engines.chat.service.transport_layer import bus, publish_message
+from engines.canvas_commands.models import (
+    CommandEnvelope,
+    RevisionResult,
+    CanvasSnapshot,
+    CanvasReplayEvent,
+)
+from engines.canvas_commands.store_service import CanvasCommandStoreService
+from engines.chat.contracts import Contact
+from engines.chat.service.transport_layer import publish_message
 from engines.common.identity import RequestContext
+from engines.common.error_envelope import cursor_invalid_error
 from engines.nexus.hardening.gate_chain import get_gate_chain
 from engines.realtime.isolation import register_canvas_resource, verify_canvas_access
 
 logger = logging.getLogger(__name__)
-
-# --- In-Memory Truth Store (Phase 1-3 Stub) ---
-# In production this is Postgres/Nexus
-class CanvasState:
-    def __init__(self, rev: int = 0):
-        self.rev = rev
-        self.applied_commands: Set[str] = set() # idempotency keys
-
-class CommandRepository:
-    def __init__(self):
-        self._states: Dict[str, CanvasState] = {}
-        # Pre-seed for testing
-        self._states["canvas-1"] = CanvasState(rev=10)
-
-    def get_state(self, canvas_id: str) -> CanvasState:
-        if canvas_id not in self._states:
-            self._states[canvas_id] = CanvasState(rev=0)
-        return self._states[canvas_id]
-
-repo = CommandRepository()
 
 
 async def apply_command(
@@ -51,7 +37,6 @@ async def apply_command(
     if context:
         register_canvas_resource(effective_tenant, command.canvas_id)
 
-    # 1. Isolation Check
     verify_canvas_access(effective_tenant, command.canvas_id)
 
     if context:
@@ -63,70 +48,132 @@ async def apply_command(
             subject_type="canvas",
             subject_id=command.canvas_id,
         )
-    
-    state = repo.get_state(command.canvas_id)
-    
-    # 2. Idempotency Check
-    if command.idempotency_key in state.applied_commands:
-        logger.info(f"Command {command.id} replay detected (idempotent)")
-        return RevisionResult(
-            status="applied",
-            current_rev=state.rev,
-            reason="Idempotent replay"
-        )
 
-    # 3. Revision Check (Optimistic Locking)
-    if command.base_rev != state.rev:
-        logger.warning(
-            f"Conflict on {command.canvas_id}: client_base={command.base_rev} server={state.rev}"
-        )
+        store = CanvasCommandStoreService(context)
+    else:
+        raise HTTPException(status_code=500, detail="RequestContext is required for persistence")
+
+    current_rev = store.get_head_revision(command.canvas_id)
+
+    if command.idempotency_key:
+        existing = store.check_idempotency(command.canvas_id, command.idempotency_key)
+        if existing:
+            return RevisionResult(
+                status="applied",
+                current_rev=existing["revision"],
+                your_rev=existing["revision"],
+                event_id=existing["event_id"],
+                reason="Idempotent replay",
+            )
+
+    if command.base_rev != current_rev:
+        recovery_records = store.list_commands_since(command.canvas_id, command.base_rev)
+        recovery_ops = [
+            {
+                "event_id": rec["event_id"],
+                "type": rec["type"],
+                "revision": rec["revision"],
+            }
+            for rec in recovery_records
+        ]
         return RevisionResult(
             status="conflict",
-            current_rev=state.rev,
-            reason=f"Revision Mismatch: Expected {state.rev}, got {command.base_rev}"
+            current_rev=current_rev,
+            reason=f"Revision Mismatch: Expected {current_rev}, got {command.base_rev}",
+            recovery_ops=recovery_ops,
         )
 
-    # 4. Apply (Stub Logic)
-    # In real logic, we'd validate the transition.
-    # Here we just accept and increment.
-    state.rev += 1
-    state.applied_commands.add(command.idempotency_key)
-    
-    new_rev = state.rev
-    
-    # 5. Emit Event (Truth)
+    record = store.append_command(
+        canvas_id=command.canvas_id,
+        command_id=command.id,
+        idempotency_key=command.idempotency_key,
+        base_rev=command.base_rev,
+        command_type=command.type,
+        command_args=command.args,
+        user_id=user_id,
+    )
+
+    new_rev = record["revision"]
+    event_id = record["event_id"]
+
     final_payload = {
         "kind": "canvas_commit",
         "cmd_id": command.id,
         "type": command.type,
         "rev": new_rev,
-        "args": command.args
+        "args": command.args,
+        "event_id": event_id,
     }
-    event_id: Optional[str] = None
-    if context:
-        msg = publish_message(
-            command.canvas_id,
-            Contact(id=user_id),
-            json.dumps(final_payload),
-            role="system",
-            context=context,
-        )
-        event_id = msg.id
-    else:
-        msg = Message(
-            id=command.id,
-            thread_id=command.canvas_id, # Bus topic
-            sender=Contact(id=user_id),
-            text=json.dumps(final_payload),
-            role="system",
-            created_at=datetime.utcnow()
-        )
-        bus.add_message(command.canvas_id, msg)
-        event_id = msg.id
-    
+
+    event_id_result = None
+    msg = publish_message(
+        command.canvas_id,
+        Contact(id=user_id),
+        json.dumps(final_payload),
+        role="system",
+        context=context,
+    )
+    event_id_result = msg.id
+
     return RevisionResult(
         status="applied",
         current_rev=new_rev,
         your_rev=new_rev,
-        event_id=event_id
+        event_id=event_id_result,
     )
+
+
+async def get_canvas_snapshot(
+    canvas_id: str,
+    tenant_id: str,
+    context: Optional[RequestContext] = None,
+) -> CanvasSnapshot:
+    if not context:
+        raise HTTPException(status_code=500, detail="RequestContext required")
+    store = CanvasCommandStoreService(context)
+    head_rev = store.get_head_revision(canvas_id)
+    events = store.list_commands_since(canvas_id, 0)
+    head_event_id = events[-1]["event_id"] if events else None
+    timestamp = events[-1]["timestamp"] if events else None
+    return CanvasSnapshot(
+        canvas_id=canvas_id,
+        head_rev=head_rev,
+        state={},
+        head_event_id=head_event_id,
+        timestamp=timestamp,
+    )
+
+
+async def get_canvas_replay(
+    canvas_id: str,
+    tenant_id: str,
+    after_event_id: Optional[str] = None,
+    context: Optional[RequestContext] = None,
+) -> List[CanvasReplayEvent]:
+    if not context:
+        raise HTTPException(status_code=500, detail="RequestContext required")
+    store = CanvasCommandStoreService(context)
+    events = store.list_commands_since(canvas_id, 0)
+
+    start_index = 0
+    if after_event_id:
+        found_index = next(
+            (idx for idx, evt in enumerate(events) if evt["event_id"] == after_event_id),
+            None,
+        )
+        if found_index is None:
+            raise cursor_invalid_error(after_event_id, domain="canvas")
+        start_index = found_index + 1
+
+    replay_events = events[start_index:]
+    return [
+        CanvasReplayEvent(
+            event_id=evt["event_id"],
+            type=evt["type"],
+            revision=evt["revision"],
+            command_id=evt.get("command_id"),
+            data=evt.get("command_args", {}),
+            timestamp=evt.get("timestamp"),
+        )
+        for evt in replay_events
+    ]

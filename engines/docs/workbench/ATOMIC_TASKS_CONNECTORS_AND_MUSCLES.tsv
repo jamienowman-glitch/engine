@@ -1,0 +1,8 @@
+task_id	lane	description	acceptance_criteria
+T_STD_01	Engines	Remove hardcoded connector imports from `inventory.py`.	Inventory is empty by default; no specific tool imports.
+T_STD_02	Engines	Implement `ConnectorLoader` service.	Scans `engines/connectors` OR reads `ENABLED_CONNECTORS` config to load modules dynamically.
+T_STD_03	Engines	Standardize `Jules` connector files.	Move files to `engines/connectors/jules/`, add `__init__.py` with `register_connector()`.
+T_STD_04	Engines	Verify Workbench Draft Endpoints.	Ensure `PUT /drafts` and `GET /drafts` work with new loader/inventory.
+T_STD_05	Engines	Implement Overlay Loading in GateChain.	GateChain must read `ActivationOverlay` from Policy Store to find `requires_firearms` status.
+T_STD_06	Muscles	Audit Muscle Wrappers (Video, Audio, Chat).	Ensure all exist in correct location and use `RequestContext`.
+T_STD_07	QA	Test Connector Lifecycle (Draft->Publish).	Full integration test: Create Draft -> Publish -> Enforce Policy.

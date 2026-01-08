@@ -15,6 +15,25 @@ class KPIBindingProfile(BaseModel):
     scopes: Dict[str, ScopeKPIBinding] = Field(default_factory=dict)
 
 
+# --- Registry Metadata ---
+class KpiCategory(BaseModel):
+    id: Optional[str] = None
+    tenant_id: str
+    env: str
+    name: str # e.g. "Performance"
+    description: Optional[str] = None
+    model_config = ConfigDict(extra="allow")
+
+class KpiType(BaseModel):
+    id: Optional[str] = None
+    tenant_id: str
+    env: str
+    name: str # e.g. "Latency"
+    description: Optional[str] = None
+    category_id: Optional[str] = None # Link to Category
+    model_config = ConfigDict(extra="allow")
+
+
 # --- Legacy/Full KPI Models (Required for Service) ---
 class KpiDefinition(BaseModel):
     id: Optional[str] = None

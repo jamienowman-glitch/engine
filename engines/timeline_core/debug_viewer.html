@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Northstar Timeline Debugger</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --panel-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --border-color: #404040;
+            --primary: #4a9eff;
+            --success: #66bb6a;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+        .controls {
+            background: var(--panel-bg);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            border: 1px solid var(--border-color);
+        }
+        input, button {
+            background: #3d3d3d;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+        button {
+            cursor: pointer;
+            background: var(--primary);
+            border: none;
+            font-weight: 500;
+        }
+        button:hover { opacity: 0.9; }
+        button.secondary { background: #555; }
+        
+        .gantt-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow-x: auto;
+            position: relative;
+        }
+        
+        .timeline-header {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            height: 30px;
+            position: sticky;
+            top: 0;
+            background: var(--panel-bg);
+            z-index: 10;
+        }
+        
+        .row {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            min-height: 40px;
+            position: relative;
+        }
+        
+        .sidebar {
+            width: 200px;
+            flex-shrink: 0;
+            border-right: 1px solid var(--border-color);
+            padding: 10px;
+            font-size: 14px;
+            background: var(--panel-bg);
+            position: sticky;
+            left: 0;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+        }
+        
+        .group-row { background: #353535; font-weight: bold; }
+        .lane-row { background: #2d2d2d; padding-left: 30px; }
+        
+        .timeline-area {
+            flex-grow: 1;
+            position: relative;
+            min-width: 800px;
+        }
+        
+        .gantt-item {
+            position: absolute;
+            height: 24px;
+            top: 8px;
+            border-radius: 4px;
+            background: #666;
+            color: white;
+            font-size: 12px;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .gantt-item:hover {
+            transform: scale(1.02);
+            z-index: 100;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: #111;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            z-index: 1000;
+            display: none;
+            pointer-events: none;
+            font-size: 13px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .tooltip table { border-collapse: collapse; }
+        .tooltip td { padding: 2px 8px 2px 0; }
+        .tooltip .key { color: #888; }
+        
+        .icon { margin-right: 6px; }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <label>API: <input type="text" id="apiUrl" value="http://localhost:8000"></label>
+    <label>Tenant: <input type="text" id="tenantId" value="t_demo"></label>
+    <label>Env: <input type="text" id="env" value="dev"></label>
+    <button onclick="loadGantt()">Load Gantt</button>
+    <button class="secondary" onclick="importDemo()">Import Demo Data</button>
+</div>
+
+<div id="gantt" class="gantt-container"></div>
+<div id="tooltip" class="tooltip"></div>
+
+<script>
+    async function apiCall(path, method="GET", body=null) {
+        const root = document.getElementById('apiUrl').value.replace(/\/$/, "");
+        const tenant = document.getElementById('tenantId').value;
+        const env = document.getElementById('env').value;
+        
+        const opts = {
+            method,
+            headers: {
+                "X-Tenant-Id": tenant,
+                "X-Env": env,
+                "Content-Type": "application/json"
+            }
+        };
+        if (body) opts.body = JSON.stringify(body);
+        
+        try {
+            const res = await fetch(`${root}${path}`, opts);
+            if (!res.ok) {
+                const txt = await res.text();
+                alert(`Error: ${res.status}\n${txt}`);
+                return null;
+            }
+            return await res.json();
+        } catch (e) {
+            alert(`Network error: ${e.message}`);
+            return null;
+        }
+    }
+
+    async function importDemo() {
+        const payload = {
+            "items": [
+                {
+                    "id": "vid1", "campaign": "Q1 Launch", "channel": "YouTube",
+                    "asset": "Hero Video", "due_date": new Date().toISOString(), 
+                    "owner": "Jamie", "tags": ["urgent"]
+                },
+                {
+                    "id": "ig1", "campaign": "Q1 Launch", "channel": "Instagram",
+                    "asset": "Teaser Reel", "due_date": new Date(Date.now() + 86400000).toISOString(), 
+                    "owner": "Sam", "tags": []
+                },
+                {
+                    "id": "blog1", "campaign": "Evergreen", "channel": "Blog",
+                    "asset": "SEO Article", "due_date": new Date(Date.now() + 172800000).toISOString(), 
+                    "owner": "Alex", "tags": []
+                }
+            ]
+        };
+        const res = await apiCall("/timeline/import/content", "POST", payload);
+        if (res) {
+            alert(`Imported ${res.length} items. Now loading view...`);
+            loadGantt();
+        }
+    }
+
+    async function loadGantt() {
+        const data = await apiCall("/timeline/view/gantt");
+        if (!data) return;
+        render(data);
+    }
+
+    function render(data) {
+        const container = document.getElementById('gantt');
+        container.innerHTML = '';
+        
+        // Time scale (simple linear mapping for now)
+        // Find globa min/max if not provided
+        let minTime = new Date(data.project_start).getTime();
+        let maxTime = new Date(data.project_end).getTime();
+        
+        // Buffer
+        const day = 86400000;
+        minTime -= day;
+        maxTime += day * 2;
+        const totalDuration = maxTime - minTime;
+        const pxPerMs = 1000 / totalDuration; // 1000px width target
+        
+        container.style.display = 'block';
+        
+        // Helper to map time to px
+        const toPx = (ts) => {
+            const t = new Date(ts).getTime();
+            return ((t - minTime) / totalDuration) * 100;
+        };
+
+        let html = '';
+        
+        // Rows
+        data.rows.forEach(group => {
+            // Group Row
+            html += `
+                <div class="row group-row">
+                    <div class="sidebar">${group.label}</div>
+                    <div class="timeline-area"></div>
+                </div>
+            `;
+            
+            // Sub Rows
+            group.sub_rows.forEach(lane => {
+                html += `
+                    <div class="row lane-row">
+                        <div class="sidebar">${lane.label}</div>
+                        <div class="timeline-area" style="position:relative; height:40px;">
+                `;
+                
+                // Items
+                lane.items.forEach(item => {
+                    const left = toPx(item.start);
+                    let width = toPx(item.end) - left;
+                    if (width < 1) width = 1; // min width for milestones
+                    if (item.start === item.end) width = 0.5; // clear milestone marker
+                    
+                    // Visuals
+                    const color = item.color || '#666';
+                    const icon = item.icon ? mapIcon(item.icon) : '';
+                    const tooltipJson = JSON.stringify(item.tooltip || {}).replace(/"/g, '&quot;');
+                    
+                    html += `
+                        <div class="gantt-item" 
+                             style="left:${left}%; width:${Math.max(width, 5)}%; background-color:${color}"
+                             onmouseenter="showTooltip(event, '${item.label}', '${tooltipJson}')"
+                             onmouseleave="hideTooltip()"
+                        >
+                            ${icon}
+                            <span>${item.label}</span>
+                        </div>
+                    `;
+                });
+                
+                html += `</div></div>`;
+            });
+        });
+        
+        container.innerHTML = html;
+    }
+
+    function mapIcon(key) {
+        const map = {
+            'youtube': '▶️',
+            'instagram': '📸',
+            'tiktok': '🎵',
+            'file-text': '📄',
+            'mail': '✉️',
+            'hash': '#'
+        };
+        return `<span class="icon">${map[key] || ''}</span>`;
+    }
+
+    window.showTooltip = function(e, label, metaStr) {
+        const tip = document.getElementById('tooltip');
+        const meta = JSON.parse(metaStr);
+        let content = `<strong>${label}</strong><table>`;
+        for (let [k, v] of Object.entries(meta)) {
+            content += `<tr><td class="key">${k}:</td><td>${v}</td></tr>`;
+        }
+        content += '</table>';
+        tip.innerHTML = content;
+        tip.style.display = 'block';
+        tip.style.left = (e.pageX + 10) + 'px';
+        tip.style.top = (e.pageY + 10) + 'px';
+    };
+
+    window.hideTooltip = function() {
+        document.getElementById('tooltip').style.display = 'none';
+    };
+</script>
+
+</body>
+</html>

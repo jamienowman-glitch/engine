@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, Header, HTTPException, Query, Request
+from engines.common.error_envelope import error_response
 
 VALID_TENANT_PATTERN = re.compile(r"^t_[a-z0-9_-]+$")
 VALID_MODES = frozenset({"saas", "enterprise", "lab"})
@@ -219,7 +220,12 @@ async def get_request_context(
         if not tenant_id:
             tenant_id = auth_ctx.default_tenant_id
         if tenant_id and tenant_id not in auth_ctx.tenant_ids:
-            raise HTTPException(status_code=403, detail="tenant mismatch with token")
+            error_response(
+                code="auth.tenant_mismatch",
+                message="tenant mismatch with token",
+                status_code=403,
+                resource_kind="auth",
+            )
         user_id = auth_ctx.user_id or user_id
         if tenant_id and not header_role:
             header_role = auth_ctx.role_map.get(tenant_id)

@@ -11,10 +11,18 @@ from engines.kpi.models import (
     KpiDefinition,
     KpiRawMeasurement,
     SurfaceKpiSet,
+    KpiCategory,
+    KpiType,
 )
 
 
 class KpiRepository(Protocol):
+    # Registry Metadata
+    def create_category(self, category: KpiCategory) -> KpiCategory: ...
+    def list_categories(self, tenant_id: str, env: str) -> List[KpiCategory]: ...
+    def create_type(self, kpi_type: KpiType) -> KpiType: ...
+    def list_types(self, tenant_id: str, env: str) -> List[KpiType]: ...
+
     def create_definition(self, definition: KpiDefinition) -> KpiDefinition: ...
     def list_definitions(self, tenant_id: str, env: str, surface: Optional[str] = None) -> List[KpiDefinition]: ...
     def upsert_corridor(self, corridor: KpiCorridor) -> KpiCorridor: ...
@@ -42,10 +50,29 @@ class InMemoryKpiRepository:
         self._corridors: Dict[tuple[str, str, str], KpiCorridor] = {}
         self._surface_sets: Dict[tuple[str, str, Optional[str]], SurfaceKpiSet] = {}
         self._raw: Dict[tuple[str, str, Optional[str]], List[KpiRawMeasurement]] = {}
+        self._categories: Dict[tuple[str, str, str], KpiCategory] = {}
+        self._types: Dict[tuple[str, str, str], KpiType] = {}
 
     @staticmethod
     def _surface_key(surface: Optional[str]) -> Optional[str]:
         return normalize_surface_id(surface) if surface else None
+
+    # Registry Metadata
+    def create_category(self, category: KpiCategory) -> KpiCategory:
+        key = (category.tenant_id, category.env, category.id or category.name)
+        self._categories[key] = category
+        return category
+
+    def list_categories(self, tenant_id: str, env: str) -> List[KpiCategory]:
+        return [c for (t, e, _), c in self._categories.items() if t == tenant_id and e == env]
+
+    def create_type(self, kpi_type: KpiType) -> KpiType:
+        key = (kpi_type.tenant_id, kpi_type.env, kpi_type.id or kpi_type.name)
+        self._types[key] = kpi_type
+        return kpi_type
+
+    def list_types(self, tenant_id: str, env: str) -> List[KpiType]:
+        return [t for (t, e, _), t in self._types.items() if t == tenant_id and e == env]
 
     def create_definition(self, definition: KpiDefinition) -> KpiDefinition:
         key = (definition.tenant_id, definition.env, definition.id)
@@ -195,11 +222,25 @@ class FileKpiRepository(KpiRepository):
                 items.append(model.parse_raw(raw))
         return items
 
-    @staticmethod
-    def _write_json(path: Path, value: BaseModel) -> None:
+    def _write_json(self, path: Path, value: BaseModel) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as fh:
             fh.write(value.model_dump_json())
+
+    # Registry Metadata (File implementation: root encoded)
+    def create_category(self, category: KpiCategory) -> KpiCategory:
+        self._append_jsonl(self._scope_dir(category.tenant_id, category.env) / "categories.jsonl", category)
+        return category
+
+    def list_categories(self, tenant_id: str, env: str) -> List[KpiCategory]:
+        return self._read_jsonl(self._scope_dir(tenant_id, env) / "categories.jsonl", KpiCategory)
+
+    def create_type(self, kpi_type: KpiType) -> KpiType:
+        self._append_jsonl(self._scope_dir(kpi_type.tenant_id, kpi_type.env) / "types.jsonl", kpi_type)
+        return kpi_type
+
+    def list_types(self, tenant_id: str, env: str) -> List[KpiType]:
+        return self._read_jsonl(self._scope_dir(tenant_id, env) / "types.jsonl", KpiType)
 
     def create_definition(self, definition: KpiDefinition) -> KpiDefinition:
         self._append_jsonl(self._jsonl_path(definition.tenant_id, definition.env, definition.surface, "definitions.jsonl"), definition)

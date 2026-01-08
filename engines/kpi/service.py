@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from engines.common.identity import RequestContext
 from engines.common.surface_normalizer import normalize_surface_id
-from engines.kpi.models import KpiCorridor, KpiDefinition, KpiRawMeasurement, SurfaceKpiSet
+from engines.kpi.models import KpiCorridor, KpiDefinition, KpiRawMeasurement, SurfaceKpiSet, KpiCategory, KpiType
 from engines.kpi.repository import FileKpiRepository, KpiRepository
 
 
@@ -48,6 +48,23 @@ kpi_repo: KpiRepository = _default_repo()
 class KpiService:
     def __init__(self, repo: Optional[KpiRepository] = None) -> None:
         self.repo = repo or kpi_repo
+
+    # Registry Metadata
+    def create_category(self, ctx: RequestContext, payload: KpiCategory) -> KpiCategory:
+        payload.tenant_id = ctx.tenant_id
+        payload.env = ctx.env
+        return self.repo.create_category(payload)
+
+    def list_categories(self, ctx: RequestContext) -> List[KpiCategory]:
+        return self.repo.list_categories(ctx.tenant_id, ctx.env)
+
+    def create_type(self, ctx: RequestContext, payload: KpiType) -> KpiType:
+        payload.tenant_id = ctx.tenant_id
+        payload.env = ctx.env
+        return self.repo.create_type(payload)
+
+    def list_types(self, ctx: RequestContext) -> List[KpiType]:
+        return self.repo.list_types(ctx.tenant_id, ctx.env)
 
     def create_definition(self, ctx: RequestContext, payload: KpiDefinition) -> KpiDefinition:
         payload.tenant_id = ctx.tenant_id

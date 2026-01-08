@@ -29,6 +29,8 @@ def _hello_payload(ctx: RequestContext) -> dict:
             "project_id": ctx.project_id,
             "request_id": ctx.request_id,
             "user_id": ctx.user_id,
+            "surface_id": ctx.surface_id,
+            "app_id": ctx.app_id,
         },
     }
 
@@ -63,7 +65,13 @@ def reset_bus_and_timeline():
 def test_ws_auth_required():
     try:
         with client.websocket_connect("/ws/chat/thread-1") as websocket:
-            ctx = RequestContext(tenant_id="t_test", mode="saas", project_id="p_chat")
+            ctx = RequestContext(
+                tenant_id="t_test",
+                mode="saas",
+                project_id="p_chat",
+                surface_id="surface-alpha",
+                app_id="app-chat",
+            )
             websocket.send_json(_hello_payload(ctx))
             websocket.receive_text()
     except WebSocketDisconnect as exc:
@@ -79,6 +87,8 @@ def test_ws_auth_success(mock_token):
             project_id="p_chat",
             request_id="req-ws",
             user_id="u_test",
+            surface_id="surface-alpha",
+            app_id="app-chat",
         )
         with client.websocket_connect("/ws/chat/thread-1", headers=_ws_headers(mock_token)) as websocket:
             websocket.send_json(_hello_payload(ctx))
@@ -97,6 +107,8 @@ def test_ws_message_flow(mock_token):
             project_id="p_chat",
             request_id="req-flow",
             user_id="u_test",
+            surface_id="surface-alpha",
+            app_id="app-chat",
         )
         with client.websocket_connect(
             f"/ws/chat/{thread_id}", headers=_ws_headers(mock_token)
@@ -117,6 +129,8 @@ def test_ws_heartbeat_ping(mock_token):
             project_id="p_chat",
             request_id="req-hb",
             user_id="u_test",
+            surface_id="surface-alpha",
+            app_id="app-chat",
         )
         with client.websocket_connect("/ws/chat/thread-hb", headers=_ws_headers(mock_token)) as websocket:
              websocket.send_json(_hello_payload(ctx))

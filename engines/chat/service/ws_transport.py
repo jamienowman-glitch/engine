@@ -20,7 +20,8 @@ from fastapi import (
 from engines.chat.contracts import Contact, Message
 from engines.chat.pipeline import process_message
 from engines.chat.service.transport_layer import bus
-from engines.common.identity import RequestContext
+from engines.common.error_envelope import build_error_envelope, cursor_invalid_error
+from engines.common.identity import RequestContext, assert_context_matches
 from engines.identity.auth import AuthContext, get_optional_auth_context
 from engines.identity.ticket_service import TicketError, validate_ticket
 from engines.realtime.contracts import (
@@ -41,10 +42,68 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _build_ws_error_payload(
+    code: str,
+    message: str,
+    status_code: int,
+    resource_kind: str = "chat",
+) -> dict:
+    envelope = build_error_envelope(
+        code=code,
+        message=message,
+        status_code=status_code,
+        resource_kind=resource_kind,
+    )
+    return envelope.model_dump()
+
+
+def _extract_ws_error_payload(detail: Any, fallback_code: str, status_code: int) -> dict:
+    if isinstance(detail, dict) and "error" in detail:
+        return detail
+    if isinstance(detail, str):
+        return _build_ws_error_payload(fallback_code, detail, status_code)
+    return _build_ws_error_payload(
+        fallback_code,
+        detail.__class__.__name__ if detail else "WebSocket error",
+        status_code,
+    )
+
+
+async def _send_ws_error(websocket: WebSocket, code: str, message: str, status_code: int):
+    payload = _build_ws_error_payload(code, message, status_code)
+    await websocket.send_text(json.dumps(payload))
+    await websocket.close(code=4003, reason=payload["error"]["code"])
+
+
+async def _send_ws_http_exception_error(websocket: WebSocket, exc: HTTPException, fallback_code: str):
+    payload = _extract_ws_error_payload(exc.detail, fallback_code, exc.status_code)
+    await websocket.send_text(json.dumps(payload))
+    await websocket.close(code=4003, reason=payload["error"]["code"])
+
+
+async def _send_event_stream_missing_route(websocket: WebSocket, message: str):
+    payload = _build_ws_error_payload(
+        "event_stream.missing_route",
+        message,
+        status_code=503,
+        resource_kind="event_stream",
+    )
+    await websocket.send_text(json.dumps(payload))
+    await websocket.close(code=4003, reason=payload["error"]["code"])
+
+
+def _validate_timeline_cursor(timeline, thread_id: str, cursor: Optional[str]):
+    if not cursor:
+        return
+    events = timeline.list_after(thread_id)
+    if not any(event.event_id == cursor for event in events):
+        raise cursor_invalid_error(cursor, domain="chat")
+
+
 def _merge_scope(context_data: Dict[str, Any], ticket_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     merged = {**(context_data or {})}
     ticket_payload = ticket_payload or {}
-    required_fields = ("tenant_id", "mode", "project_id")
+    required_fields = ("tenant_id", "mode", "project_id", "app_id")
     for field in required_fields:
         value = merged.get(field) or ticket_payload.get(field)
         if not value:
@@ -58,6 +117,21 @@ def _merge_scope(context_data: Dict[str, Any], ticket_payload: Optional[Dict[str
         if merged.get(field) is None and ticket_payload.get(field) is not None:
             merged[field] = ticket_payload[field]
     return merged
+
+
+def _ws_error_mapping(reason: str) -> tuple[str, int]:
+    lower = reason.lower()
+    if "tenant mismatch" in lower:
+        return "auth.tenant_mismatch", 401
+    if "mode" in lower and "required" in lower:
+        return "auth.mode_missing", 400
+    if "project_id" in lower and "required" in lower:
+        return "auth.project_missing", 400
+    if "app_id" in lower and "required" in lower:
+        return "auth.app_missing", 400
+    if "context mismatch" in lower:
+        return "auth.context_mismatch", 400
+    return "auth.context_mismatch", 400
 
 
 def _context_from_scope(scope: Dict[str, Any]) -> RequestContext:
@@ -87,13 +161,22 @@ def _resolve_hello_context(
 
     ticket_payload: Optional[Dict[str, Any]] = None
     if ticket_token:
-        try:
-            ticket_payload = validate_ticket(ticket_token)
-        except TicketError as exc:
-            raise WebSocketException(code=4003, reason=str(exc)) from exc
+        ticket_payload = validate_ticket(ticket_token)
 
     merged_scope = _merge_scope(hello.get("context") or {}, ticket_payload)
     ctx = _context_from_scope(merged_scope)
+    if ticket_payload:
+        try:
+            assert_context_matches(
+                ctx,
+                tenant_id=ticket_payload.get("tenant_id"),
+                mode=ticket_payload.get("mode"),
+                project_id=ticket_payload.get("project_id"),
+                surface_id=ticket_payload.get("surface_id"),
+                app_id=ticket_payload.get("app_id"),
+            )
+        except HTTPException as exc:
+            raise WebSocketException(code=4003, reason=f"Context mismatch with ticket: {exc.detail}") from exc
     if auth_context and auth_context.default_tenant_id != ctx.tenant_id:
         raise WebSocketException(code=4003, reason="Tenant mismatch")
     last_event_id = hello.get("last_event_id")
@@ -176,7 +259,12 @@ async def websocket_endpoint(
 
     ticket_token = hello.get("ticket") or ticket
     if not auth_context and not ticket_token:
-        await websocket.close(code=4003, reason="Auth or ticket required")
+        await _send_ws_error(
+            websocket,
+            "auth.ticket_missing",
+            "Auth or ticket required",
+            status_code=401,
+        )
         return
 
     try:
@@ -185,8 +273,31 @@ async def websocket_endpoint(
             ticket_token,
             auth_context,
         )
+    except TicketError as exc:
+        await _send_ws_error(
+            websocket,
+            "auth.ticket_invalid",
+            str(exc),
+            status_code=401,
+        )
+        return
     except WebSocketException as exc:
-        await websocket.close(code=exc.code, reason=exc.reason)
+        reason = exc.reason or "Malformed hello payload"
+        code, status = _ws_error_mapping(reason)
+        await _send_ws_error(
+            websocket,
+            code,
+            reason,
+            status_code=status,
+        )
+        return
+    except Exception as exc:
+        await _send_ws_error(
+            websocket,
+            "auth.ticket_invalid",
+            str(exc),
+            status_code=400,
+        )
         return
 
     user_id = (
@@ -197,16 +308,42 @@ async def websocket_endpoint(
     request_context.user_id = user_id
     request_context.actor_id = user_id
 
+    if auth_context and auth_context.default_tenant_id != request_context.tenant_id:
+        await _send_ws_error(
+            websocket,
+            "auth.tenant_mismatch",
+            "Tenant mismatch",
+            status_code=403,
+        )
+        return
+
     try:
         verify_thread_access(request_context.tenant_id, thread_id)
     except HTTPException as exc:
-        await websocket.close(code=4003, reason=str(exc.detail))
+        await _send_ws_http_exception_error(
+            websocket,
+            exc,
+            fallback_code="chat.access_denied",
+        )
+        return
+
+    try:
+        timeline = get_timeline_store()
+    except RuntimeError as exc:
+        await _send_event_stream_missing_route(websocket, str(exc))
+        return
+    try:
+        _validate_timeline_cursor(timeline, thread_id, last_event_id)
+    except HTTPException as exc:
+        await _send_ws_http_exception_error(
+            websocket,
+            exc,
+            fallback_code="chat.cursor_invalid",
+        )
         return
 
     await manager.connect(thread_id, websocket, user_id)
     hb_task = asyncio.create_task(heartbeat(websocket))
-
-    timeline = get_timeline_store()
     replay_events = timeline.list_after(thread_id, after_event_id=last_event_id)
     cursor = last_event_id
     for event in replay_events:

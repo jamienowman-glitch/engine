@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Literal
+from typing import Any, Dict, Optional, Literal, List
 from pydantic import BaseModel, Field
 
 from engines.realtime.contracts import RoutingKeys
@@ -43,6 +43,9 @@ class RevisionResult(BaseModel):
     
     # If applied, the event ID generated
     event_id: Optional[str] = None
+    
+    # Recovery ops for conflict resolution
+    recovery_ops: Optional[List[Dict[str, Any]]] = None
 
 
 class CanvasOp(BaseModel):
@@ -60,6 +63,25 @@ class CanvasRevision(BaseModel):
     canvas_id: str
     head_rev: int = 0
     updated_at: float = 0.0
+
+
+class CanvasSnapshot(BaseModel):
+    """Snapshot of canvas state at head revision (EN-04)."""
+    canvas_id: str
+    head_rev: int
+    state: Dict[str, Any] = Field(default_factory=dict)
+    head_event_id: Optional[str] = None
+    timestamp: Optional[float] = None
+
+
+class CanvasReplayEvent(BaseModel):
+    """Event in replay sequence (EN-04)."""
+    event_id: str
+    type: str
+    revision: int
+    command_id: Optional[str] = None
+    data: Dict[str, Any] = Field(default_factory=dict)
+    timestamp: Optional[float] = None
 
 
 def _now() -> float:

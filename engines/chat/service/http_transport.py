@@ -1,15 +1,23 @@
 """HTTP transport wired to chat pipeline."""
 from __future__ import annotations
 
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
+import logging
+from typing import Any, Dict
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError
 
 from engines.chat.contracts import Contact, ChatScope
 from engines.chat.pipeline import process_message
 from engines.chat.service.transport_layer import bus
+from engines.common.error_envelope import ErrorDetail, ErrorEnvelope, build_error_envelope
 from engines.common.identity import RequestContext, get_request_context
 from engines.identity.auth import AuthContext, get_auth_context, require_tenant_membership
 from engines.nexus.hardening.gate_chain import get_gate_chain
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Chat HTTP Transport", version="0.2.0")
 
@@ -88,6 +96,76 @@ async def post_message(
         context=request_context,
     )
     return {"posted": [m.dict() for m in msgs]}
+
+
+def _normalize_existing_envelope(detail: Any, status_code: int) -> ErrorEnvelope | None:
+    """Return an ErrorEnvelope if the detail already carries a canonical structure."""
+    payload: Dict[str, Any] | None = None
+    if isinstance(detail, ErrorEnvelope):
+        payload = detail.model_dump()["error"]
+    elif isinstance(detail, dict):
+        maybe_error = detail.get("error")
+        if isinstance(maybe_error, dict):
+            payload = maybe_error
+
+    if payload is None:
+        return None
+
+    normalized = dict(payload)
+    normalized["http_status"] = status_code
+    try:
+        return ErrorEnvelope(error=ErrorDetail.model_validate(normalized))
+    except ValidationError:
+        logger.debug("Rejecting malformed error envelope payload %s", payload, exc_info=True)
+        return None
+
+
+async def _http_exception_handler(request: Request, exc: HTTPException):
+    envelope = _normalize_existing_envelope(exc.detail, exc.status_code)
+    if envelope is None:
+        message = exc.detail if isinstance(exc.detail, str) else "HTTP exception"
+        details: Dict[str, Any] | None = {"original_detail": str(exc.detail)} if exc.detail else None
+        envelope = build_error_envelope(
+            code="http.exception",
+            message=str(message),
+            status_code=exc.status_code,
+            details=details,
+        )
+    return JSONResponse(content=envelope.model_dump(), status_code=exc.status_code)
+
+
+async def _validation_exception_handler(request: Request, exc: RequestValidationError):
+# NB: Validation errors should always carry a 400 http_status.
+    envelope = build_error_envelope(
+        code="validation.error",
+        message="Validation failed",
+        status_code=400,
+        details={"errors": exc.errors()},
+    )
+    return JSONResponse(content=envelope.model_dump(), status_code=400)
+
+
+async def _generic_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception while processing %s %s", request.method, request.url)
+    envelope = build_error_envelope(
+        code="internal.error",
+        message="Internal server error",
+        status_code=500,
+    )
+    return JSONResponse(content=envelope.model_dump(), status_code=500)
+
+
+def register_error_handlers(target_app: FastAPI) -> None:
+    """Attach canonical error handlers to the passed FastAPI app."""
+    if getattr(target_app.state, "northstar_error_handlers", False):
+        return
+    target_app.add_exception_handler(HTTPException, _http_exception_handler)
+    target_app.add_exception_handler(RequestValidationError, _validation_exception_handler)
+    target_app.add_exception_handler(Exception, _generic_exception_handler)
+    target_app.state.northstar_error_handlers = True
+
+
+register_error_handlers(app)
 
 
 def create_app() -> FastAPI:

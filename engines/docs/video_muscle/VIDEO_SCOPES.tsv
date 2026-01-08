@@ -1,0 +1,9 @@
+tool_id	scope_id	scope_name	operation_kind	inputs_summary	outputs_summary	dangerous	recommended_firearms_license_type	notes
+video	timeline_read	video.timeline.read	READ	project_id, sequence_id	Timeline Object	N		Safe introspection of edit state.
+video	timeline_write	video.timeline.write	WRITE	Clip ops (trim, split, move)	Updated Clip	N	creative_assistant	Moving clips is low risk/cost.
+video	timeline_admin	video.timeline.admin	DELETE	Delete project/sequence	Success/Fail	Y	admin_override	Destructive.
+video	render_read	video.render.read	READ	job_id	Job Status / URL	N		Check progress.
+video	render_submit	video.render.submit	WRITE	RenderRequest (profile, range)	Job ID	Y	production_budget	Costs GPU/Compute time.
+video	multicam_align	video.multicam.align	WRITE	Asset List	Alignment Result	Y	heavy_compute	CPU intensive analysis.
+video	mask_generate	video.mask.generate	WRITE	frame_ref, prompt	Mask Artifact	Y	generative_ai	GenAI cost.
+video	text_generate	video.text.generate	WRITE	text_content, style	Text Image/Overlay	N		Low cost generation.

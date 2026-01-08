@@ -1,124 +1,162 @@
 from __future__ import annotations
 
-import os
-from typing import Dict, List, Optional, Protocol
+from typing import List, Optional, Protocol, Dict
 
-from engines.firearms.models import FirearmsLicence, LicenceLevel, LicenceStatus
+from engines.common.identity import RequestContext
+from engines.common.error_envelope import missing_route_error
+from engines.storage.routing_service import TabularStoreService
+from engines.routing.registry import MissingRoutingConfig
+from engines.firearms.models import Firearm, FirearmGrant, FirearmBinding
 
 
 class FirearmsRepository(Protocol):
-    def issue(self, licence: FirearmsLicence) -> FirearmsLicence: ...
-    def get(self, tenant_id: str, env: str, licence_id: str) -> Optional[FirearmsLicence]: ...
-    def list(
-        self,
-        tenant_id: str,
-        env: str,
-        subject_type: Optional[str] = None,
-        subject_id: Optional[str] = None,
-        status: Optional[LicenceStatus] = None,
-        level: Optional[LicenceLevel] = None,
-    ) -> List[FirearmsLicence]: ...
-    def update(self, licence: FirearmsLicence) -> FirearmsLicence: ...
+    # Registry
+    def create_firearm(self, ctx: RequestContext, firearm: Firearm) -> Firearm: ...
+    def get_firearm(self, ctx: RequestContext, firearm_id: str) -> Optional[Firearm]: ...
+    def list_firearms(self, ctx: RequestContext) -> List[Firearm]: ...
+    
+    # Grants
+    def create_grant(self, ctx: RequestContext, grant: FirearmGrant) -> FirearmGrant: ...
+    def list_grants(self, ctx: RequestContext, agent_id: Optional[str] = None, user_id: Optional[str] = None) -> List[FirearmGrant]: ...
+    
+    # Bindings
+    def create_binding(self, ctx: RequestContext, binding: FirearmBinding) -> FirearmBinding: ...
+    def get_binding(self, ctx: RequestContext, action_name: str) -> Optional[FirearmBinding]: ...
+    def list_bindings(self, ctx: RequestContext) -> List[FirearmBinding]: ...
 
 
 class InMemoryFirearmsRepository:
     def __init__(self) -> None:
-        self._items: Dict[tuple[str, str, str], FirearmsLicence] = {}
+        self._firearms: Dict[str, Firearm] = {}
+        self._grants: Dict[str, FirearmGrant] = {}
+        self._bindings: Dict[str, FirearmBinding] = {}
 
-    def issue(self, licence: FirearmsLicence) -> FirearmsLicence:
-        self._items[(licence.tenant_id, licence.env, licence.id)] = licence
-        return licence
+    def create_firearm(self, ctx: RequestContext, firearm: Firearm) -> Firearm:
+        self._firearms[firearm.id] = firearm
+        return firearm
 
-    def get(self, tenant_id: str, env: str, licence_id: str) -> Optional[FirearmsLicence]:
-        return self._items.get((tenant_id, env, licence_id))
+    def get_firearm(self, ctx: RequestContext, firearm_id: str) -> Optional[Firearm]:
+        return self._firearms.get(firearm_id)
 
-    def list(
-        self,
-        tenant_id: str,
-        env: str,
-        subject_type: Optional[str] = None,
-        subject_id: Optional[str] = None,
-        status: Optional[LicenceStatus] = None,
-        level: Optional[LicenceLevel] = None,
-    ) -> List[FirearmsLicence]:
-        licences = [l for (t, e, _), l in self._items.items() if t == tenant_id and e == env]
-        if subject_type:
-            licences = [l for l in licences if l.subject_type == subject_type]
-        if subject_id:
-            licences = [l for l in licences if l.subject_id == subject_id]
-        if status:
-            licences = [l for l in licences if l.status == status]
-        if level:
-            licences = [l for l in licences if l.level == level]
-        return licences
+    def list_firearms(self, ctx: RequestContext) -> List[Firearm]:
+        return list(self._firearms.values())
 
-    def update(self, licence: FirearmsLicence) -> FirearmsLicence:
-        self._items[(licence.tenant_id, licence.env, licence.id)] = licence
-        return licence
+    def create_grant(self, ctx: RequestContext, grant: FirearmGrant) -> FirearmGrant:
+        self._grants[grant.id] = grant
+        return grant
+
+    def list_grants(self, ctx: RequestContext, agent_id: Optional[str] = None, user_id: Optional[str] = None) -> List[FirearmGrant]:
+        res = [
+            g for g in self._grants.values() 
+            if g.tenant_id == ctx.tenant_id
+            and (not g.revoked)
+        ]
+        if agent_id:
+            res = [g for g in res if g.granted_to_agent_id == agent_id]
+        if user_id:
+            res = [g for g in res if g.granted_to_user_id == user_id]
+        return res
+
+    def create_binding(self, ctx: RequestContext, binding: FirearmBinding) -> FirearmBinding:
+        self._bindings[binding.action_name] = binding
+        return binding
+
+    def get_binding(self, ctx: RequestContext, action_name: str) -> Optional[FirearmBinding]:
+        return self._bindings.get(action_name)
+    
+    def list_bindings(self, ctx: RequestContext) -> List[FirearmBinding]:
+        return list(self._bindings.values())
 
 
-class FirestoreFirearmsRepository(InMemoryFirearmsRepository):
-    """Firestore implementation."""
+class RoutedFirearmsRepository(InMemoryFirearmsRepository):
+    """Routed firearms policy store (firearms_policy_store)."""
 
-    def __init__(self, client: Optional[object] = None) -> None:  # pragma: no cover - optional dep
+    def __init__(self) -> None:
+        super().__init__()
+        self._bindings_table = "firearms_policy"
+        self._grants_table = "firearms_grants"
+
+    def _tabular(self, ctx: RequestContext) -> TabularStoreService:
         try:
-            from google.cloud import firestore  # type: ignore
-        except Exception as exc:
-            raise RuntimeError("google-cloud-firestore not installed") from exc
-        from engines.config import runtime_config
+            return TabularStoreService(ctx, resource_kind="firearms_policy_store")
+        except (RuntimeError, MissingRoutingConfig):
+            missing_route_error(
+                resource_kind="firearms_policy_store",
+                tenant_id=ctx.tenant_id,
+                env=ctx.env,
+                status_code=503,
+            )
 
-        project = runtime_config.get_firestore_project()
-        if not project:
-            raise RuntimeError("GCP project is required for Firestore firearms repo")
-        self._client = client or firestore.Client(project=project)  # type: ignore[arg-type]
-        self._collection = "firearms_licences"
+    def _binding_key(self, ctx: RequestContext, action_name: str) -> str:
+        return f"{ctx.tenant_id}#{ctx.mode}#{ctx.env}#binding#{action_name}"
 
-    def _col(self):
-        return self._client.collection(self._collection)
+    def _grant_prefix(self, ctx: RequestContext) -> str:
+        return f"{ctx.tenant_id}#{ctx.mode}#{ctx.env}#grant#"
 
-    def issue(self, licence: FirearmsLicence) -> FirearmsLicence:
-        doc_id = licence.id
-        self._col().document(doc_id).set(licence.model_dump())
-        return licence
+    def _grant_key(self, ctx: RequestContext, grant: FirearmGrant) -> str:
+        actor = grant.granted_to_agent_id or grant.granted_to_user_id or "unknown"
+        return f"{self._grant_prefix(ctx)}{actor}#{grant.firearm_id}#{grant.id}"
 
-    def get(self, tenant_id: str, env: str, licence_id: str) -> Optional[FirearmsLicence]:
-        snap = self._col().document(licence_id).get()
-        if snap and snap.exists:
-            data = snap.to_dict()
-            if data.get("tenant_id") == tenant_id and data.get("env") == env:
-                return FirearmsLicence(**data)
-        return None
+    def create_binding(self, ctx: RequestContext, binding: FirearmBinding) -> FirearmBinding:
+        record = binding.model_dump()
+        self._tabular(ctx).upsert(self._bindings_table, self._binding_key(ctx, binding.action_name), record)
+        return binding
 
-    def list(
-        self,
-        tenant_id: str,
-        env: str,
-        subject_type: Optional[str] = None,
-        subject_id: Optional[str] = None,
-        status: Optional[LicenceStatus] = None,
-        level: Optional[LicenceLevel] = None,
-    ) -> List[FirearmsLicence]:
-        query = self._col().where("tenant_id", "==", tenant_id).where("env", "==", env)
-        if subject_type:
-            query = query.where("subject_type", "==", subject_type)
-        if subject_id:
-            query = query.where("subject_id", "==", subject_id)
-        if status:
-            query = query.where("status", "==", status)
-        if level:
-            query = query.where("level", "==", level)
-        return [FirearmsLicence(**d.to_dict()) for d in query.stream()]
+    def get_binding(self, ctx: RequestContext, action_name: str) -> Optional[FirearmBinding]:
+        data = self._tabular(ctx).get(self._bindings_table, self._binding_key(ctx, action_name))
+        return FirearmBinding(**data) if data else None
 
-    def update(self, licence: FirearmsLicence) -> FirearmsLicence:
-        self._col().document(licence.id).set(licence.model_dump())
-        return licence
+    def list_bindings(self, ctx: RequestContext) -> List[FirearmBinding]:
+        records = self._tabular(ctx).list_by_prefix(self._bindings_table, f"{ctx.tenant_id}#{ctx.mode}#{ctx.env}#binding#")
+        return [FirearmBinding(**r) for r in records if r]
+
+    def create_grant(self, ctx: RequestContext, grant: FirearmGrant) -> FirearmGrant:
+        record = grant.model_dump()
+        self._tabular(ctx).upsert(self._grants_table, self._grant_key(ctx, grant), record)
+        return grant
+
+    def list_grants(self, ctx: RequestContext, agent_id: Optional[str] = None, user_id: Optional[str] = None) -> List[FirearmGrant]:
+        prefix = self._grant_prefix(ctx)
+        records = self._tabular(ctx).list_by_prefix(self._grants_table, prefix)
+        result = []
+        for rec in records:
+            try:
+                g = FirearmGrant(**rec)
+            except Exception:
+                continue
+            if g.revoked or g.tenant_id != ctx.tenant_id:
+                continue
+            if agent_id and g.granted_to_agent_id != agent_id:
+                continue
+            if user_id and g.granted_to_user_id != user_id:
+                continue
+            result.append(g)
+        return result
+
+    def create_firearm(self, ctx: RequestContext, firearm: Firearm) -> Firearm:
+        record = firearm.model_dump()
+        key = f"{ctx.tenant_id}#{ctx.mode}#{ctx.env}#firearm#{firearm.id}"
+        self._tabular(ctx).upsert(self._bindings_table, key, record)
+        return firearm
+
+    def get_firearm(self, ctx: RequestContext, firearm_id: str) -> Optional[Firearm]:
+        key_prefix = f"{ctx.tenant_id}#{ctx.mode}#{ctx.env}#firearm#{firearm_id}"
+        records = self._tabular(ctx).list_by_prefix(self._bindings_table, key_prefix)
+        rec = records[0] if records else None
+        return Firearm(**rec) if rec else None
+
+    def list_firearms(self, ctx: RequestContext) -> List[Firearm]:
+        key_prefix = f"{ctx.tenant_id}#{ctx.mode}#{ctx.env}#firearm#"
+        records = self._tabular(ctx).list_by_prefix(self._bindings_table, key_prefix)
+        return [Firearm(**r) for r in records if r]
 
 
-def firearms_repo_from_env() -> FirearmsRepository:
-    backend = os.getenv("FIREARMS_BACKEND", "").lower()
-    if backend == "firestore":
-        try:
-            return FirestoreFirearmsRepository()
-        except Exception:
-            return InMemoryFirearmsRepository()
-    return InMemoryFirearmsRepository()
+# Global singleton
+_firearms_repo: FirearmsRepository = RoutedFirearmsRepository()
+
+def get_firearms_repo() -> FirearmsRepository:
+    return _firearms_repo
+
+def set_firearms_repo(repo: FirearmsRepository) -> None:
+    global _firearms_repo
+    _firearms_repo = repo

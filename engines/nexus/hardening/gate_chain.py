@@ -9,12 +9,15 @@ from fastapi import HTTPException
 from engines.budget.repository import BudgetPolicyRepository, get_budget_policy_repo
 from engines.budget.service import BudgetService, get_budget_service
 from engines.common.identity import RequestContext
+from engines.common.error_envelope import error_response
 from engines.common.surface_normalizer import normalize_surface_id
-from engines.firearms.service import DANGEROUS_ACTIONS, FirearmsService, get_firearms_service
+from engines.firearms.service import FirearmsService, get_firearms_service
 from engines.kill_switch.service import KillSwitchService, get_kill_switch_service
 from engines.kpi.service import KpiService, get_kpi_service
 from engines.logging.audit import emit_audit_event
+from engines.logging.audit import emit_audit_event
 from engines.strategy_lock.service import StrategyLockService, get_strategy_lock_service
+from engines.strategy_lock.resolution import resolve_strategy_lock
 from engines.temperature.service import TemperatureService, get_temperature_service
 from engines.realtime.contracts import (
     EventIds,
@@ -68,27 +71,66 @@ class GateChain:
             self.kill_switch.ensure_action_allowed(ctx, action)
         except HTTPException as exc:
             gate_blocked = "kill_switch"
-            reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-            details = exc.detail if isinstance(exc.detail, dict) else None
+            reason_code, details = self._extract_error_fields(exc)
             self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
             raise
 
         try:
-            if action in DANGEROUS_ACTIONS:
-                self.firearms.require_licence_or_raise(ctx, subject_type or "unknown", subject_id or action, action)
+            # Worker 7: New Firearms Binding Check
+            # Action logic: If "action" is bound to a firearm -> 
+            # 1. Check Grant (throws 403 if missing)
+            # 2. Return decision.strategy_lock_required
+            
+            firearms_decision = self.firearms.check_access(ctx, action)
+            if not firearms_decision.allowed:
+                # Block immediate with new contract
+                error_response(
+                    code="firearms.license_required",
+                    message="Firearm license required for this action",
+                    status_code=403,
+                    gate="firearms",
+                    action_name=action,
+                    details={
+                        "required_license_types": firearms_decision.required_license_types,
+                        "action": action,
+                        "subject_type": subject_type or "unknown",
+                        "subject_id": subject_id or "unknown",
+                    },
+                )
+            
         except HTTPException as exc:
             gate_blocked = "firearms"
-            reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-            details = exc.detail if isinstance(exc.detail, dict) else None
+            reason_code, details = self._extract_error_fields(exc)
             self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
             raise
 
         try:
-            self.strategy_lock.require_strategy_lock_or_raise(ctx, surface_key, action)
+            # self.strategy_lock.require_strategy_lock_or_raise(ctx, surface_key, action)
+            # Worker 6: Use new resolution logic
+            decision = resolve_strategy_lock(ctx, surface_key, action, subject_type, subject_id)
+            
+            if not decision.allowed:
+                details = {
+                    "lock_scope": {"context": surface_key},
+                    "action": action,
+                }
+                if decision.lock_id:
+                    details["lock_id"] = decision.lock_id
+                if decision.three_wise_verdict:
+                    details["three_wise_verdict"] = decision.three_wise_verdict
+                error_response(
+                    code="strategy_lock.approval_required",
+                    message="Strategy lock approval required before execution",
+                    status_code=403,
+                    gate="strategy_lock",
+                    action_name=action,
+                    resource_kind="strategy_lock",
+                    details=details,
+                )
+                 
         except HTTPException as exc:
             gate_blocked = "strategy_lock"
-            reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-            details = exc.detail if isinstance(exc.detail, dict) else None
+            reason_code, details = self._extract_error_fields(exc)
             self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
             raise
 
@@ -97,8 +139,7 @@ class GateChain:
                 self._enforce_budget(ctx, surface_key, action)
             except HTTPException as exc:
                 gate_blocked = "budget"
-                reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-                details = exc.detail if isinstance(exc.detail, dict) else None
+                reason_code, details = self._extract_error_fields(exc)
                 self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
                 raise
             
@@ -106,8 +147,7 @@ class GateChain:
                 self._enforce_kpi(ctx, surface_key, action)
             except HTTPException as exc:
                 gate_blocked = "kpi"
-                reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-                details = exc.detail if isinstance(exc.detail, dict) else None
+                reason_code, details = self._extract_error_fields(exc)
                 self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
                 raise
             
@@ -115,14 +155,24 @@ class GateChain:
                 self._enforce_temperature(ctx, surface_key, action)
             except HTTPException as exc:
                 gate_blocked = "temperature"
-                reason_code = exc.detail.get("error") if isinstance(exc.detail, dict) else str(exc.detail)
-                details = exc.detail if isinstance(exc.detail, dict) else None
+                reason_code, details = self._extract_error_fields(exc)
                 self._emit_safety_decision(ctx, action, subject_type, subject_id, "BLOCK", reason_code, gate_blocked, details=details)
                 raise
 
         # All gates passed - emit SAFETY_DECISION PASS
         self._emit_safety_decision(ctx, action, subject_type, subject_id, "PASS", "passed", "all_gates")
         self._emit_audit(ctx, action, surface_key, subject_type, subject_id, skip_metrics)
+
+    def _extract_error_fields(self, exc: HTTPException) -> tuple[str, Optional[dict]]:
+        """Normalize error detail to (code, details) tuple."""
+        if isinstance(exc.detail, dict):
+            error_block = exc.detail.get("error")
+            if isinstance(error_block, dict):
+                code = error_block.get("code") or error_block.get("message") or "error"
+                details = error_block.get("details") or error_block
+                return code, details
+            return exc.detail.get("error") or str(exc.detail), exc.detail
+        return str(exc.detail), None
 
     def _emit_safety_decision(
         self,
@@ -211,16 +261,27 @@ class GateChain:
             app=ctx.app_id,
         )
         if policy is None:
-            raise HTTPException(
+            error_response(
+                code="budget_threshold_missing",
+                message=f"No budget policy configured for {surface}",
                 status_code=403,
-                detail={"error": "budget_threshold_missing", "surface": surface},
+                gate="budget",
+                action_name=action,
+                details={"surface": surface},
             )
 
         summary_surface = policy.surface
         try:
             summary = self.budget_service.summary(ctx, surface=summary_surface)
         except Exception as exc:
-            raise HTTPException(status_code=403, detail={"error": "budget_unavailable", "reason": str(exc)})
+            error_response(
+                code="budget_unavailable",
+                message="Budget service unavailable",
+                status_code=403,
+                gate="budget",
+                action_name=action,
+                details={"reason": str(exc)},
+            )
 
         total_cost = summary.get("total_cost")
         try:
@@ -229,17 +290,19 @@ class GateChain:
             total = Decimal("0")
 
         if total > policy.threshold:
-            raise HTTPException(
+            error_response(
+                code="budget_threshold_exceeded",
+                message=f"Budget threshold exceeded: ${float(total):.2f} > ${float(policy.threshold):.2f}",
                 status_code=403,
-                detail={
-                    "error": "budget_threshold_exceeded",
+                gate="budget",
+                action_name=action,
+                details={
                     "surface": surface,
                     "policy_surface": policy.surface,
                     "policy_mode": policy.mode,
                     "policy_app": policy.app,
                     "total_cost": float(total),
                     "threshold": float(policy.threshold),
-                    "action": action,
                 },
             )
 
@@ -247,14 +310,25 @@ class GateChain:
         try:
             corridors = self.kpi_service.list_corridors(ctx, surface=surface)
         except Exception as exc:
-            raise HTTPException(status_code=403, detail={"error": "kpi_unavailable", "reason": str(exc)})
+            error_response(
+                code="kpi_unavailable",
+                message="KPI service unavailable",
+                status_code=403,
+                gate="kpi",
+                action_name=action,
+                details={"reason": str(exc)},
+            )
 
         if not corridors:
             if os.environ.get("GATECHAIN_ALLOW_MISSING") == "1":
                 return
-            raise HTTPException(
+            error_response(
+                code="kpi_threshold_missing",
+                message=f"No KPI thresholds configured for {surface}",
                 status_code=403,
-                detail={"error": "kpi_threshold_missing", "surface": surface, "action": action},
+                gate="kpi",
+                action_name=action,
+                details={"surface": surface},
             )
 
         surface_value = normalize_surface_id(surface) if surface else surface
@@ -266,27 +340,31 @@ class GateChain:
             if measurement is None:
                 continue
             if corridor.floor is not None and measurement.value < corridor.floor:
-                raise HTTPException(
+                error_response(
+                    code="kpi_floor_breached",
+                    message=f"KPI {corridor.kpi_name} floor breached: {measurement.value} < {corridor.floor}",
                     status_code=403,
-                    detail={
-                        "error": "kpi_floor_breached",
+                    gate="kpi",
+                    action_name=action,
+                    details={
                         "surface": target_surface,
                         "kpi_name": corridor.kpi_name,
                         "value": measurement.value,
                         "floor": corridor.floor,
-                        "action": action,
                     },
                 )
             if corridor.ceiling is not None and measurement.value > corridor.ceiling:
-                raise HTTPException(
+                error_response(
+                    code="kpi_ceiling_breached",
+                    message=f"KPI {corridor.kpi_name} ceiling breached: {measurement.value} > {corridor.ceiling}",
                     status_code=403,
-                    detail={
-                        "error": "kpi_ceiling_breached",
+                    gate="kpi",
+                    action_name=action,
+                    details={
                         "surface": target_surface,
                         "kpi_name": corridor.kpi_name,
                         "value": measurement.value,
                         "ceiling": corridor.ceiling,
-                        "action": action,
                     },
                 )
 
@@ -294,17 +372,26 @@ class GateChain:
         try:
             snapshot = self.temperature_service.compute_temperature(ctx, surface)
         except Exception as exc:
-            raise HTTPException(status_code=403, detail={"error": "temperature_unavailable", "reason": str(exc)})
+            error_response(
+                code="temperature_unavailable",
+                message="Temperature service unavailable",
+                status_code=403,
+                gate="temperature",
+                action_name=action,
+                details={"reason": str(exc)},
+            )
 
         if getattr(snapshot, "floors_breached", None) or getattr(snapshot, "ceilings_breached", None):
-            raise HTTPException(
+            error_response(
+                code="temperature_breach",
+                message="Temperature thresholds breached",
                 status_code=403,
-                detail={
-                    "error": "temperature_breach",
+                gate="temperature",
+                action_name=action,
+                details={
                     "surface": surface,
                     "floors": getattr(snapshot, "floors_breached", []),
                     "ceilings": getattr(snapshot, "ceilings_breached", []),
-                    "action": action,
                 },
             )
 

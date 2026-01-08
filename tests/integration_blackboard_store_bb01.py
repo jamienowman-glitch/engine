@@ -22,7 +22,7 @@ from engines.blackboard_store.service_reject import (
 def request_context():
     """Create a test RequestContext."""
     return RequestContext(
-        tenant_id="test_tenant",
+        tenant_id="t_test_tenant",
         mode="saas",
         env="dev",
         user_id="test_user",
@@ -50,7 +50,7 @@ class TestBlackboardStoreRejectOnMissing:
     def test_reject_on_missing_route_enterprise(self):
         """Verify rejection in enterprise mode."""
         context = RequestContext(
-            tenant_id="test_tenant",
+            tenant_id="t_test_tenant",
             mode="enterprise",
             env="prod",
             user_id="test_user",
@@ -89,6 +89,7 @@ class TestBlackboardStoreRejectOnMissing:
                     key="strategy_state",
                     value={"mode": "active"},
                     expected_version=None,
+                    run_id="run_123",
                 )
                 
                 assert result["key"] == "strategy_state"
@@ -97,8 +98,10 @@ class TestBlackboardStoreRejectOnMissing:
     
     def test_write_with_version_conflict(self, request_context):
         """Verify VersionConflictError raised on version mismatch."""
+        from engines.blackboard_store.cloud_blackboard_store import VersionConflictError
+        
         mock_adapter = MagicMock()
-        mock_adapter.write.side_effect = Exception("version conflict: expected 5, got 4")
+        mock_adapter.write.side_effect = VersionConflictError("version conflict: expected 5, got 4")
         
         with patch('engines.blackboard_store.service_reject.routing_registry') as mock_registry:
             mock_route = MagicMock()
@@ -111,10 +114,10 @@ class TestBlackboardStoreRejectOnMissing:
                 
                 svc = BlackboardStoreServiceRejectOnMissing(request_context)
                 
-                with pytest.raises(RuntimeError) as exc_info:
-                    svc.write(key="state", value={"x": 1}, expected_version=5)
+                with pytest.raises(VersionConflictError) as exc_info:
+                    svc.write(key="state", value={"x": 1}, expected_version=5, run_id="run_123")
                 
-                assert "Blackboard write failed" in str(exc_info.value)
+                assert "version conflict" in str(exc_info.value).lower()
     
     def test_read_latest_version(self, request_context):
         """Verify read returns latest version."""
@@ -139,10 +142,10 @@ class TestBlackboardStoreRejectOnMissing:
                 mock_fs.return_value = mock_adapter
                 
                 svc = BlackboardStoreServiceRejectOnMissing(request_context)
-                result = svc.read(key="strategy_state")
+                result = svc.read(key="strategy_state", run_id="run_123")
                 
                 assert result["version"] == 3
-                mock_adapter.read.assert_called_once_with(key="strategy_state", version=None)
+                mock_adapter.read.assert_called_once_with(key="strategy_state", context=request_context, run_id="run_123", version=None)
     
     def test_read_specific_version(self, request_context):
         """Verify read can fetch specific version."""
@@ -167,10 +170,10 @@ class TestBlackboardStoreRejectOnMissing:
                 mock_fs.return_value = mock_adapter
                 
                 svc = BlackboardStoreServiceRejectOnMissing(request_context)
-                result = svc.read(key="strategy_state", version=2)
+                result = svc.read(key="strategy_state", version=2, run_id="run_123")
                 
                 assert result["version"] == 2
-                mock_adapter.read.assert_called_once_with(key="strategy_state", version=2)
+                mock_adapter.read.assert_called_once_with(key="strategy_state", context=request_context, run_id="run_123", version=2)
     
     def test_read_missing_key_returns_none(self, request_context):
         """Verify read returns None for missing key."""
@@ -187,7 +190,7 @@ class TestBlackboardStoreRejectOnMissing:
                 mock_fs.return_value = mock_adapter
                 
                 svc = BlackboardStoreServiceRejectOnMissing(request_context)
-                result = svc.read(key="nonexistent")
+                result = svc.read(key="nonexistent", run_id="run_123")
                 
                 assert result is None
     
@@ -233,7 +236,7 @@ class TestBlackboardStoreRejectOnMissing:
                 svc = BlackboardStoreServiceRejectOnMissing(request_context)
                 
                 with pytest.raises(RuntimeError) as exc_info:
-                    svc.write(key="state", value={"x": 1})
+                    svc.write(key="state", value={"x": 1}, run_id="run_123")
                 
                 assert "Blackboard write failed" in str(exc_info.value)
     
@@ -254,7 +257,7 @@ class TestBlackboardStoreRejectOnMissing:
                 svc = BlackboardStoreServiceRejectOnMissing(request_context)
                 
                 with pytest.raises(RuntimeError) as exc_info:
-                    svc.read(key="state")
+                    svc.read(key="state", run_id="run_123")
                 
                 assert "Blackboard read failed" in str(exc_info.value)
 

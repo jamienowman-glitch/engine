@@ -1,82 +1,126 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-from engines.common.identity import RequestContext, assert_context_matches, get_request_context
-from engines.firearms.models import FirearmsLicence, LicenceLevel, LicenceStatus
-from engines.firearms.service import FirearmsService, get_firearms_service
-from engines.identity.auth import get_auth_context, require_tenant_membership, require_tenant_role
+from engines.common.identity import RequestContext, get_request_context
+from engines.common.error_envelope import error_response
+from engines.identity.auth import get_auth_context, require_tenant_membership
+from engines.firearms.models import FirearmBinding, FirearmGrant
+from engines.firearms.service import get_firearms_service, FirearmsService
 
-router = APIRouter(prefix="/firearms/licences", tags=["firearms"])
+router = APIRouter(prefix="/firearms", tags=["firearms"])
 
 
-@router.post("", response_model=FirearmsLicence)
-def issue_licence(
-    payload: FirearmsLicence,
+class FirearmPolicyPayload(BaseModel):
+    bindings: List[FirearmBinding]
+
+
+class FirearmGrantsPayload(BaseModel):
+    grants: List[FirearmGrant]
+
+
+def _ensure_membership(context: RequestContext, auth) -> None:
+    try:
+        require_tenant_membership(auth, context.tenant_id)
+    except HTTPException as exc:
+        error_response(
+            code="auth.tenant_membership_required",
+            message=str(exc.detail),
+            status_code=exc.status_code,
+            resource_kind="firearms_policy_store",
+        )
+
+
+@router.get("/policy", response_model=List[FirearmBinding])
+def get_policy(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
-):
-    assert_context_matches(context, payload.tenant_id, payload.env)
-    require_tenant_role(auth, context.tenant_id, ["owner", "admin"])
-    return get_firearms_service().issue_licence(context, payload)
+    service: FirearmsService = Depends(get_firearms_service),
+) -> List[FirearmBinding]:
+    _ensure_membership(context, auth)
+    try:
+        return service.repo.list_bindings(context)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        error_response(
+            code="firearms.policy_read_failed",
+            message=str(exc),
+            status_code=500,
+            resource_kind="firearms_policy_store",
+        )
 
 
-@router.patch("/{licence_id}", response_model=FirearmsLicence)
-def revoke_licence(
-    licence_id: str = Path(...),
+@router.put("/policy", response_model=List[FirearmBinding])
+def put_policy(
+    payload: FirearmPolicyPayload,
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
-):
-    require_tenant_role(auth, context.tenant_id, ["owner", "admin"])
-    return get_firearms_service().revoke_licence(context, licence_id)
+    service: FirearmsService = Depends(get_firearms_service),
+) -> List[FirearmBinding]:
+    _ensure_membership(context, auth)
+    try:
+        saved = []
+        for binding in payload.bindings:
+            saved.append(service.bind_action(context, binding))
+        return saved
+    except HTTPException:
+        raise
+    except Exception as exc:
+        error_response(
+            code="firearms.policy_write_failed",
+            message=str(exc),
+            status_code=500,
+            resource_kind="firearms_policy_store",
+        )
 
 
-@router.get("/{licence_id}", response_model=FirearmsLicence)
-def get_licence(
-    licence_id: str = Path(...),
+@router.get("/grants", response_model=List[FirearmGrant])
+def list_grants(
+    agent_id: Optional[str] = None,
+    user_id: Optional[str] = None,
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
-):
-    require_tenant_membership(auth, context.tenant_id)
-    return get_firearms_service().get_licence(context, licence_id)
+    service: FirearmsService = Depends(get_firearms_service),
+) -> List[FirearmGrant]:
+    _ensure_membership(context, auth)
+    try:
+        target_user_id = user_id or (None if agent_id else context.user_id)
+        return service.repo.list_grants(context, agent_id=agent_id, user_id=target_user_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        error_response(
+            code="firearms.grants_read_failed",
+            message=str(exc),
+            status_code=500,
+            resource_kind="firearms_policy_store",
+        )
 
 
-@router.get("", response_model=list[FirearmsLicence])
-def list_licences(
-    subject_type: Optional[str] = Query(default=None),
-    subject_id: Optional[str] = Query(default=None),
-    status: Optional[LicenceStatus] = Query(default=None),
-    level: Optional[LicenceLevel] = Query(default=None),
+@router.put("/grants", response_model=List[FirearmGrant])
+def put_grants(
+    payload: FirearmGrantsPayload,
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
-):
-    require_tenant_membership(auth, context.tenant_id)
-    return get_firearms_service().list_licences(context, subject_type=subject_type, subject_id=subject_id, status=status, level=level)
-
-
-@router.get("/check/{subject_type}/{subject_id}")
-def check_action(
-    subject_type: str,
-    subject_id: str,
-    action: str = Query(...),
-    context: RequestContext = Depends(get_request_context),
-    auth=Depends(get_auth_context),
-):
-    require_tenant_membership(auth, context.tenant_id)
-    svc = get_firearms_service()
-    allowed = svc.check_licence_allowed(context.tenant_id, context.env, subject_type, subject_id, action)
-    return {"allowed": allowed}
-
-
-@router.post("/dangerous-demo/{subject_type}/{subject_id}")
-def dangerous_demo(
-    subject_type: str,
-    subject_id: str,
-    context: RequestContext = Depends(get_request_context),
-    auth=Depends(get_auth_context),
-):
-    require_tenant_membership(auth, context.tenant_id)
-    get_firearms_service().require_licence_or_raise(context, subject_type=subject_type, subject_id=subject_id, action="dangerous_tool_use")
-    return {"status": "allowed"}
+    service: FirearmsService = Depends(get_firearms_service),
+) -> List[FirearmGrant]:
+    _ensure_membership(context, auth)
+    saved: List[FirearmGrant] = []
+    try:
+        for grant in payload.grants:
+            grant.tenant_id = context.tenant_id
+            saved.append(service.grant_licence(context, grant))
+        return saved
+    except HTTPException:
+        raise
+    except Exception as exc:
+        error_response(
+            code="firearms.grants_write_failed",
+            message=str(exc),
+            status_code=500,
+            resource_kind="firearms_policy_store",
+        )

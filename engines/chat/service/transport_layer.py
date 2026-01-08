@@ -1,4 +1,4 @@
-"""Durable-aware pub/sub for chat transports (PLAN-024 stubs)."""
+"""Durable chat transport backed by routed chat_store."""
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from engines.chat.contracts import Message, Thread, Contact, ChatScope
 from engines.common.identity import RequestContext
+from engines.chat.store_service import chat_store_or_503
 from engines.realtime.contracts import (
     StreamEvent,
     EventIds,
@@ -23,9 +24,7 @@ from engines.realtime.timeline import get_timeline_store
 class InMemoryBus:
     def __init__(self) -> None:
         self.threads: Dict[str, Thread] = {}
-        # Key: thread_id -> List[Message]
         self.messages: Dict[str, List[Message]] = {}
-        # Key: thread_id -> List[(sub_id, callback)]
         self.subscribers: Dict[str, List[Tuple[str, Callable[[Message], Any]]]] = {}
 
     def create_thread(self, participants: List[Contact]) -> Thread:
@@ -39,27 +38,21 @@ class InMemoryBus:
         return list(self.threads.values())
 
     def add_message(self, thread_id: str, msg: Message) -> None:
-        if thread_id not in self.messages:
-            self.messages[thread_id] = []
-        self.messages[thread_id].append(msg)
+        self.messages.setdefault(thread_id, []).append(msg)
         for _, callback in self.subscribers.get(thread_id, []):
             try:
                 callback(msg)
             except Exception:
-                # Best effort delivery
                 pass
 
     def get_messages(self, thread_id: str, after_id: str | None = None) -> List[Message]:
         msgs = self.messages.get(thread_id, [])
         if not after_id:
             return msgs
-        
-        # Simple seek for replay
         try:
-            # Find index of after_id
             for i, m in enumerate(msgs):
                 if m.id == after_id:
-                    return msgs[i+1:]
+                    return msgs[i + 1 :]
         except Exception:
             pass
         return []
@@ -85,13 +78,10 @@ def _get_bus():
             return RedisBus(host=host, port=port)
         except Exception as e:
             raise RuntimeError(f"Failed to load RedisBus: {e}")
-            
-    # If we get here, it's an invalid configuration
     if backend == "memory":
-        # Explicitly disallow 'memory' as well, ensuring we only run with real infra
         raise RuntimeError("CHAT_BUS_BACKEND='memory' is not allowed in Real Infra mode.")
-        
     raise RuntimeError(f"CHAT_BUS_BACKEND must be 'redis'. Got: '{backend}'")
+
 
 class LazyBus:
     def __init__(self):
@@ -105,6 +95,7 @@ class LazyBus:
 
     def __getattr__(self, name):
         return getattr(self._bus, name)
+
 
 bus = LazyBus()
 
@@ -162,41 +153,66 @@ def publish_message(
 ) -> Message:
     if context is None:
         raise RuntimeError("RequestContext is required to publish a chat message")
-    msg = Message(id=uuid.uuid4().hex, thread_id=thread_id, sender=sender, text=text, role=role, scope=scope)
-    bus.add_message(thread_id, msg)
-    get_timeline_store().append(thread_id, _message_to_stream_event(msg, context), context)
+    store = chat_store_or_503(context)
+    record = store.append_message(thread_id=thread_id, text=text, role=role, sender_id=sender.id)
+    msg = Message(
+        id=record.message_id,
+        thread_id=thread_id,
+        sender=sender,
+        text=text,
+        role=role,
+        scope=scope,
+        created_at=record.timestamp,
+    )
+    try:
+        bus.add_message(thread_id, msg)
+    except Exception:
+        # Bus is observational only; ignore if unavailable
+        pass
+    try:
+        get_timeline_store().append(thread_id, _message_to_stream_event(msg, context), context)
+    except Exception:
+        # Timeline is observational; do not block writes
+        pass
     return msg
 
 
 async def subscribe_async(thread_id: str, last_event_id: str | None = None, context: RequestContext | None = None):
-    queue: asyncio.Queue[Message] = asyncio.Queue()
     if context is None:
         raise RuntimeError("RequestContext is required for stream replay")
-
-    # Durable replay
-    timeline = get_timeline_store()
-    replay_events = timeline.list_after(thread_id, after_event_id=last_event_id)
-    for ev in replay_events:
-        sender = Contact(id=ev.routing.actor_id)
-        text = ev.data.get("text")
-        if text is None:
-            try:
-                text = json.dumps(ev.data)
-            except Exception:
-                text = str(ev.data)
-        msg = Message(
-            id=ev.event_id,
-            thread_id=thread_id,
-            sender=sender,
-            text=text,
-            role=ev.data.get("role", "system"),
-        )
-        queue.put_nowait(msg)
-
-    sub_id = bus.subscribe(thread_id, lambda msg: queue.put_nowait(msg))
+    store = chat_store_or_503(context)
+    cursor = last_event_id
+    poll_interval = 0.25
+    sub_id: str | None = None
+    queue: asyncio.Queue[Message] = asyncio.Queue()
+    try:
+        sub_id = bus.subscribe(thread_id, lambda m: queue.put_nowait(m))
+    except Exception:
+        sub_id = None
     try:
         while True:
-            msg = await queue.get()
-            yield msg
+            messages = store.list_messages(thread_id=thread_id, after_cursor=cursor, limit=100)
+            if messages:
+                for rec in messages:
+                    cursor = rec.cursor
+                    yield Message(
+                        id=rec.message_id,
+                        thread_id=thread_id,
+                        sender=Contact(id=rec.sender_id),
+                        text=rec.text,
+                        role=rec.role,
+                    )
+            try:
+                msg = queue.get_nowait()
+                yield msg
+                cursor = msg.id
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(poll_interval)
+            except Exception:
+                await asyncio.sleep(poll_interval)
     finally:
-        bus.unsubscribe(thread_id, sub_id)
+        if sub_id:
+            try:
+                bus.unsubscribe(thread_id, sub_id)
+            except Exception:
+                pass

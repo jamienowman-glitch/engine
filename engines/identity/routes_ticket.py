@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from engines.common.identity import RequestContext, get_request_context
 from engines.identity.auth import AuthContext, get_auth_context
@@ -9,6 +9,7 @@ from engines.identity.ticket_service import (
     TicketError,
     issue_ticket,
 )
+from engines.common.error_envelope import error_response
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -32,5 +33,11 @@ def issue_auth_ticket(
         )
     except TicketError as exc:
         status = 500 if "ENGINES_TICKET_SECRET" in str(exc) else 400
-        raise HTTPException(status_code=status, detail=str(exc))
+        code = "auth.ticket_missing" if status == 500 else "auth.ticket_invalid"
+        error_response(
+            code=code,
+            message=str(exc),
+            status_code=status,
+            resource_kind="auth",
+        )
     return {"ticket": token, "expires_in": TICKET_TTL_SECONDS}
