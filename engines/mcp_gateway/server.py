@@ -69,12 +69,10 @@ def create_app() -> FastAPI:
     
     register_error_handlers(app)
     
-    # Register/Wire tools
-    echo.register(get_inventory())
-    media_v2.register(get_inventory())
-    
-    from engines.mcp_gateway.tools import wrappers
-    wrappers.register_all_wrappers()
+    # Register/Wire tools via Dynamic Loader
+    # "Inventory must be empty by default" -> load_all scans disk.
+    from engines.workbench.dynamic_loader import loader
+    loader.load_all()
 
     # --- Wire Engines Routers ---
     from engines.firearms.registry_routes import router as firearms_router

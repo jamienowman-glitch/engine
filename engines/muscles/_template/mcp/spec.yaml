@@ -1,0 +1,8 @@
+id: "example_muscle"
+name: "Example Muscle"
+summary: "Template for new muscles"
+scopes:
+  - name: "compute"
+    description: "Perform computation"
+    handler: "handle_compute"
+    input_model: "ComputeInput"
