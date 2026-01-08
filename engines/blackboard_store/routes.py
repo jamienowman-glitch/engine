@@ -14,11 +14,13 @@ from engines.common.identity import (
     get_request_context,
     validate_identity_precedence,
 )
+from engines.common.error_envelope import error_response, missing_route_error
 from engines.identity.auth import get_auth_context, require_tenant_membership
 from engines.blackboard_store.service_reject import (
     BlackboardStoreServiceRejectOnMissing,
     MissingBlackboardStoreRoute,
 )
+from engines.blackboard_store.cloud_blackboard_store import VersionConflictError
 
 
 router = APIRouter(prefix="/api/v1", tags=["blackboard_store"])
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/api/v1", tags=["blackboard_store"])
 # Request/Response Models
 class WriteBlackboardRequest(BaseModel):
     """Request to write versioned value to blackboard."""
+    run_id: str = Field(..., description="Run identifier for provenance")
     key: str = Field(..., description="Unique identifier within run")
     value: Dict[str, Any] = Field(..., description="Value to store (must be JSON-serializable)")
     expected_version: Optional[int] = Field(None, description="Expected version; None = new key")
@@ -86,7 +89,15 @@ async def write_blackboard(
     Returns HTTP 409 (Conflict) if expected_version doesn't match current version.
     Returns HTTP 503 if route not configured.
     """
-    require_tenant_membership(auth, context.tenant_id)
+    try:
+        require_tenant_membership(auth, context.tenant_id)
+    except HTTPException as exc:
+        error_response(
+            code="auth.tenant_membership_required",
+            message=str(exc.detail),
+            status_code=exc.status_code,
+            resource_kind="blackboard_store",
+        )
     
     # AUTH-01: Identity precedence enforced (no client override)
     try:
@@ -95,6 +106,7 @@ async def write_blackboard(
             key=payload.key,
             value=payload.value,
             expected_version=payload.expected_version,
+            run_id=payload.run_id,
         )
         
         return WriteBlackboardResponse(
@@ -107,44 +119,43 @@ async def write_blackboard(
         )
     
     except MissingBlackboardStoreRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="blackboard_store",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=503,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
+        )
+    
+    except VersionConflictError as e:
+        error_response(
+            code="blackboard.version_conflict",
+            message=str(e),
+            status_code=409,
+            resource_kind="blackboard_store",
+            details={
+                "key": payload.key,
+                "expected_version": payload.expected_version,
             },
         )
     
     except Exception as e:
         error_msg = str(e)
         
-        # Version conflict
-        if "version" in error_msg.lower() and "conflict" in error_msg.lower():
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_code": "blackboard.version_conflict",
-                    "key": payload.key,
-                    "message": error_msg,
-                },
-            )
-        
-        # Generic error
-        raise HTTPException(
+        error_response(
+            code="blackboard.write_failed",
+            message=error_msg,
             status_code=500,
-            detail={
-                "error_code": "blackboard.write_failed",
-                "key": payload.key,
-                "message": error_msg,
-            },
+            resource_kind="blackboard_store",
+            details={"key": payload.key},
         )
 
 
 @router.get("/blackboard/read", response_model=ReadBlackboardResponse)
 async def read_blackboard(
+    run_id: str = Query(..., description="Run identifier for provenance"),
     key: str = Query(..., description="Key to read"),
     version: Optional[int] = Query(None, description="Specific version; None = latest"),
-    context: RequestContext = Depends(get_auth_context),
+    context: RequestContext = Depends(get_request_context),
 ):
     """Read versioned value from blackboard.
     
@@ -153,7 +164,7 @@ async def read_blackboard(
     """
     try:
         svc = BlackboardStoreServiceRejectOnMissing(context)
-        result = svc.read(key=key, version=version)
+        result = svc.read(key=key, version=version, run_id=run_id)
         
         if result is None:
             return ReadBlackboardResponse(key=key, found=False)
@@ -170,29 +181,27 @@ async def read_blackboard(
         )
     
     except MissingBlackboardStoreRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="blackboard_store",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=503,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     
     except Exception as e:
-        raise HTTPException(
+        error_response(
+            code="blackboard.read_failed",
+            message=str(e),
             status_code=500,
-            detail={
-                "error_code": "blackboard.read_failed",
-                "key": key,
-                "message": str(e),
-            },
+            resource_kind="blackboard_store",
+            details={"key": key},
         )
 
 
 @router.get("/blackboard/list-keys", response_model=ListKeysResponse)
 async def list_blackboard_keys(
     run_id: str = Query(..., description="Run identifier"),
-    context: RequestContext = Depends(get_auth_context),
+    context: RequestContext = Depends(get_request_context),
 ):
     """List all keys in blackboard for given run.
     
@@ -209,20 +218,18 @@ async def list_blackboard_keys(
         )
     
     except MissingBlackboardStoreRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="blackboard_store",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=503,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     
     except Exception as e:
-        raise HTTPException(
+        error_response(
+            code="blackboard.list_keys_failed",
+            message=str(e),
             status_code=500,
-            detail={
-                "error_code": "blackboard.list_keys_failed",
-                "run_id": run_id,
-                "message": str(e),
-            },
+            resource_kind="blackboard_store",
+            details={"run_id": run_id},
         )

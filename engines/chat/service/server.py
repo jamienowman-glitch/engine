@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from engines.chat.service.http_transport import app as http_app
 from engines.chat.service.ws_transport import router as ws_router
 from engines.chat.service.sse_transport import router as sse_router
+from engines.chat.service import routes as chat_routes
 from engines.bossman.routes import router as bossman_router
 from engines.media.service.routes import router as media_router
 from engines.media_v2.routes import router as media_v2_router
@@ -27,7 +28,10 @@ from engines.identity.routes_auth import router as auth_router
 from engines.identity.routes_analytics import router as analytics_router
 from engines.identity.routes_control_plane import router as control_plane_router
 from engines.identity.routes_ticket import router as ticket_router
-from engines.strategy_lock.routes import router as strategy_lock_router
+from engines.strategy_lock.routes import (
+    router as strategy_lock_router,
+    policy_router as strategy_policy_router,
+)
 from engines.temperature.routes import router as temperature_router
 from engines.video_timeline.routes import router as video_timeline_router
 from engines.video_render.routes import router as video_render_router
@@ -57,6 +61,8 @@ from engines.ops.status import router as ops_status_router
 from engines.origin_snippets.routes import router as origin_snippets_router
 from engines.persistence.routes import router as persistence_router
 from engines.routing.routes import router as routing_router
+from engines.config_store.routes import router as config_store_router
+from engines.registry.routes import router as registry_router
 
 from engines.routing.manager import startup_validation_check
 
@@ -82,6 +88,7 @@ def create_app() -> FastAPI:
         
         app.include_router(ws_router)
         app.include_router(sse_router)
+        app.include_router(chat_routes.router)
         app.include_router(media_router)
         app.include_router(media_v2_router)
         app.include_router(maybes_router, tags=["maybes"])
@@ -91,6 +98,7 @@ def create_app() -> FastAPI:
         app.include_router(control_plane_router)
         app.include_router(ticket_router)
         app.include_router(strategy_lock_router)
+        app.include_router(strategy_policy_router)
         app.include_router(temperature_router)
         app.include_router(vector_explorer_router)
         app.include_router(vector_ingest_router)
@@ -137,6 +145,8 @@ def create_app() -> FastAPI:
         from engines.feature_flags.routes import router as feature_flags_router
         app.include_router(canvas_stream_router)
         app.include_router(feature_flags_router)
+        app.include_router(config_store_router)
+        app.include_router(registry_router)
         app.state.northstar_routes_added = True
     return app
 

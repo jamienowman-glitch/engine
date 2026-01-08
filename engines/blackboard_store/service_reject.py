@@ -16,6 +16,7 @@ from engines.blackboard_store.cloud_blackboard_store import (
     FirestoreBlackboardStore,
     DynamoDBBlackboardStore,
     CosmosBlackboardStore,
+    VersionConflictError,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,23 +93,34 @@ class BlackboardStoreServiceRejectOnMissing:
                 env=self._context.env,
                 project_id=self._context.project_id,
             )
+        except MissingRoutingConfig as e:
+            message = (
+                f"Routing registry error: {str(e)}. "
+                f"Ensure routing service is running and configured."
+            )
+            if self._context.mode == "lab":
+                logger.warning(f"[LAB MODE] Routing error: {message}")
+                return None
+            else:
+                raise MissingBlackboardStoreRoute(message=message)
+        
+        if route is None:
+            message = (
+                f"No blackboard_store route configured for tenant={self._context.tenant_id}, "
+                f"env={self._context.env}, mode={self._context.mode}. "
+                f"Configure via /routing/routes with backend_type (firestore|dynamodb|cosmos)."
+            )
             
-            if route is None:
-                message = (
-                    f"No blackboard_store route configured for tenant={self._context.tenant_id}, "
-                    f"env={self._context.env}, mode={self._context.mode}. "
-                    f"Configure via /routing/routes with backend_type (firestore|dynamodb|cosmos)."
-                )
-                
-                if self._context.mode == "lab":
-                    # Lab mode: warn but continue (debug tolerance)
-                    logger.warning(f"[LAB MODE] Blackboard route missing: {message}")
-                    return None  # Will be handled in individual methods
-                else:
-                    # Production: reject hard
-                    raise MissingBlackboardStoreRoute(message=message)
-            
-            # Instantiate correct backend
+            if self._context.mode == "lab":
+                # Lab mode: warn but continue (debug tolerance)
+                logger.warning(f"[LAB MODE] Blackboard route missing: {message}")
+                return None  # Will be handled in individual methods
+            else:
+                # Production: reject hard
+                raise MissingBlackboardStoreRoute(message=message)
+        
+        # Instantiate correct backend
+        try:
             if route.backend_type == "firestore":
                 return FirestoreBlackboardStore(
                     tenant_id=self._context.tenant_id,
@@ -128,18 +140,8 @@ class BlackboardStoreServiceRejectOnMissing:
                 raise RuntimeError(
                     f"Unknown backend_type for blackboard_store: {route.backend_type}"
                 )
-        
-        except MissingRoutingConfig as e:
-            message = (
-                f"Routing registry error: {str(e)}. "
-                f"Ensure routing service is running and configured."
-            )
-            if self._context.mode == "lab":
-                logger.warning(f"[LAB MODE] Routing error: {message}")
-                return None
-            else:
-                raise MissingBlackboardStoreRoute(message=message)
-        
+        except RuntimeError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Blackboard adapter initialization failed: {str(e)}")
     
@@ -148,6 +150,7 @@ class BlackboardStoreServiceRejectOnMissing:
         key: str,
         value: Dict[str, Any],
         expected_version: Optional[int] = None,
+        run_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Write versioned value to blackboard.
         
@@ -155,6 +158,7 @@ class BlackboardStoreServiceRejectOnMissing:
             key: Unique identifier within this run
             value: Dict to store (must be JSON-serializable)
             expected_version: Expected current version; if mismatch, raises VersionConflictError
+            run_id: Run identifier; defaults to from context if available
         
         Returns:
             {key, value, version, created_by, created_at, updated_by, updated_at}
@@ -169,23 +173,30 @@ class BlackboardStoreServiceRejectOnMissing:
                 "Blackboard write failed: route not configured and mode is not lab"
             )
         
+        if run_id is None:
+            raise ValueError("run_id is required")
+        
         try:
             result = self._adapter.write(
                 key=key,
                 value=value,
+                context=self._context,
+                run_id=run_id,
                 expected_version=expected_version,
-                created_by=self._context.user_id,
             )
             return result
+        except VersionConflictError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Blackboard write failed: {str(e)}")
     
-    def read(self, key: str, version: Optional[int] = None) -> Dict[str, Any]:
+    def read(self, key: str, version: Optional[int] = None, run_id: Optional[str] = None) -> Dict[str, Any]:
         """Read versioned value from blackboard.
         
         Args:
             key: Unique identifier within this run
             version: Specific version to read; if None, reads latest
+            run_id: Run identifier; defaults to from context if available
         
         Returns:
             {key, value, version, created_by, created_at, updated_by, updated_at}
@@ -200,8 +211,16 @@ class BlackboardStoreServiceRejectOnMissing:
                 "Blackboard read failed: route not configured and mode is not lab"
             )
         
+        if run_id is None:
+            raise ValueError("run_id is required")
+        
         try:
-            result = self._adapter.read(key=key, version=version)
+            result = self._adapter.read(
+                key=key,
+                context=self._context,
+                run_id=run_id,
+                version=version,
+            )
             return result
         except Exception as e:
             raise RuntimeError(f"Blackboard read failed: {str(e)}")
@@ -225,7 +244,10 @@ class BlackboardStoreServiceRejectOnMissing:
             )
         
         try:
-            result = self._adapter.list_keys(run_id=run_id)
+            result = self._adapter.list_keys(
+                context=self._context,
+                run_id=run_id,
+            )
             return result
         except Exception as e:
             raise RuntimeError(f"Blackboard list_keys failed: {str(e)}")

@@ -76,6 +76,15 @@ def create_app() -> FastAPI:
     from engines.mcp_gateway.tools import wrappers
     wrappers.register_all_wrappers()
 
+    # --- Wire Engines Routers ---
+    from engines.firearms.registry_routes import router as firearms_router
+    from engines.kpi.registry_routes import router as kpi_router
+    from engines.workbench.routes import router as workbench_router
+
+    app.include_router(firearms_router)
+    app.include_router(kpi_router)
+    app.include_router(workbench_router)
+
     @app.get("/health")
     async def health_check():
         return {

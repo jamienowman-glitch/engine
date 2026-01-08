@@ -17,6 +17,7 @@ from engines.common.identity import (
     get_request_context,
     validate_identity_precedence,
 )
+from engines.common.error_envelope import error_response, missing_route_error
 from engines.identity.auth import get_auth_context, require_tenant_membership
 from engines.memory_store.service_reject import (
     MemoryStoreServiceRejectOnMissing,
@@ -24,6 +25,18 @@ from engines.memory_store.service_reject import (
 )
 
 router = APIRouter(prefix="/memory", tags=["memory_store"])
+
+
+def _ensure_membership(auth, context: RequestContext) -> None:
+    try:
+        require_tenant_membership(auth, context.tenant_id)
+    except HTTPException as exc:
+        error_response(
+            code="auth.tenant_membership_required",
+            message=str(exc.detail),
+            status_code=exc.status_code,
+            resource_kind="memory_store",
+        )
 
 
 # ===== Request/Response Models =====
@@ -68,7 +81,7 @@ def set_memory(
     Raises HTTP 403 (auth.identity_override) on mismatch.
     Raises HTTP 503 (memory_store.missing_route) if route missing.
     """
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     
     # AUTH-01: Identity precedence enforced (no client override of tenant/project)
     # Memory store doesn't accept identity in request body
@@ -82,17 +95,27 @@ def set_memory(
         )
         return SetMemoryResponse(key=payload.key)
     except MissingMemoryStoreRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="memory_store",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=e.status_code,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_response(
+            code="memory_store.invalid_request",
+            message=str(e),
+            status_code=400,
+            resource_kind="memory_store",
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Set failed: {str(e)}")
+        error_response(
+            code="memory_store.set_failed",
+            message=f"Set failed: {str(e)}",
+            status_code=500,
+            resource_kind="memory_store",
+            details={"key": payload.key},
+        )
 
 
 @router.get("/get", response_model=GetMemoryResponse)
@@ -106,24 +129,34 @@ def get_memory(
     AUTH-01: Server-derived context enforced via RequestContext.
     Raises HTTP 503 (memory_store.missing_route) if route missing.
     """
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     
     try:
         svc = MemoryStoreServiceRejectOnMissing(context)
         value = svc.get(key=key)
         return GetMemoryResponse(key=key, value=value, found=value is not None)
     except MissingMemoryStoreRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="memory_store",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=e.status_code,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_response(
+            code="memory_store.invalid_request",
+            message=str(e),
+            status_code=400,
+            resource_kind="memory_store",
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Get failed: {str(e)}")
+        error_response(
+            code="memory_store.get_failed",
+            message=f"Get failed: {str(e)}",
+            status_code=500,
+            resource_kind="memory_store",
+            details={"key": key},
+        )
 
 
 @router.delete("/delete", response_model=DeleteMemoryResponse)
@@ -137,21 +170,31 @@ def delete_memory(
     AUTH-01: Server-derived context enforced via RequestContext.
     Raises HTTP 503 (memory_store.missing_route) if route missing.
     """
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     
     try:
         svc = MemoryStoreServiceRejectOnMissing(context)
         svc.delete(key=key)
         return DeleteMemoryResponse(key=key)
     except MissingMemoryStoreRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="memory_store",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=e.status_code,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_response(
+            code="memory_store.invalid_request",
+            message=str(e),
+            status_code=400,
+            resource_kind="memory_store",
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+        error_response(
+            code="memory_store.delete_failed",
+            message=f"Delete failed: {str(e)}",
+            status_code=500,
+            resource_kind="memory_store",
+            details={"key": key},
+        )

@@ -59,7 +59,7 @@ class FirestoreBlackboardStore:
         context: RequestContext,
         run_id: str,
         expected_version: Optional[int] = None,
-    ) -> int:
+    ) -> Dict[str, Any]:
         """Write a value to blackboard with optimistic concurrency.
         
         Args:
@@ -69,7 +69,7 @@ class FirestoreBlackboardStore:
             run_id: provenance identifier
             expected_version: if provided, only write if current version matches
         
-        Returns: new version number
+        Returns: dict with key, value, version, created_by, created_at, updated_by, updated_at
         Raises: VersionConflictError if version mismatch
         """
         if not key or not run_id:
@@ -96,6 +96,15 @@ class FirestoreBlackboardStore:
             
             # Write new version
             new_version = current_version + 1
+            now = _now_iso()
+            created_by = context.user_id
+            created_at = now
+            
+            if doc.exists:
+                doc_dict = doc.to_dict()
+                created_by = doc_dict.get("created_by", context.user_id)
+                created_at = doc_dict.get("created_at", now)
+            
             doc_data = {
                 "key": key,
                 "value": value,
@@ -104,15 +113,23 @@ class FirestoreBlackboardStore:
                 "project_id": context.project_id,
                 "run_id": run_id,
                 "version": new_version,
-                "created_by": context.user_id,
-                "created_at": doc.to_dict().get("created_at", _now_iso()) if doc.exists else _now_iso(),
+                "created_by": created_by,
+                "created_at": created_at,
                 "updated_by": context.user_id,
-                "updated_at": _now_iso(),
+                "updated_at": now,
             }
             
             self._client.collection(self._collection).document(doc_id).set(doc_data)
             logger.debug(f"Wrote blackboard key '{key}' (version {new_version}, run {run_id})")
-            return new_version
+            return {
+                "key": key,
+                "value": value,
+                "version": new_version,
+                "created_by": created_by,
+                "created_at": created_at,
+                "updated_by": context.user_id,
+                "updated_at": now,
+            }
         except VersionConflictError:
             raise
         except Exception as exc:
@@ -226,7 +243,7 @@ class DynamoDBBlackboardStore:
         context: RequestContext,
         run_id: str,
         expected_version: Optional[int] = None,
-    ) -> int:
+    ) -> Dict[str, Any]:
         """Write a value to blackboard with optimistic concurrency."""
         if not key or not run_id:
             raise ValueError("key and run_id are required")
@@ -241,10 +258,12 @@ class DynamoDBBlackboardStore:
             response = self._table.get_item(Key={"pk": pk, "sk": sk})
             current_version = 0
             created_at = _now_iso()
+            created_by = context.user_id
             
             if "Item" in response:
                 current_version = response["Item"].get("version", 0)
                 created_at = response["Item"].get("created_at", _now_iso())
+                created_by = response["Item"].get("created_by", context.user_id)
                 
                 # Check optimistic concurrency
                 if expected_version is not None and expected_version != current_version:
@@ -255,6 +274,7 @@ class DynamoDBBlackboardStore:
             
             # Write new version
             new_version = current_version + 1
+            now = _now_iso()
             item = {
                 "pk": pk,
                 "sk": sk,
@@ -265,15 +285,23 @@ class DynamoDBBlackboardStore:
                 "project_id": context.project_id or "shared",
                 "run_id": run_id,
                 "version": new_version,
-                "created_by": response.get("Item", {}).get("created_by", context.user_id),
+                "created_by": created_by,
                 "created_at": created_at,
                 "updated_by": context.user_id,
-                "updated_at": _now_iso(),
+                "updated_at": now,
             }
             
             self._table.put_item(Item=item)
             logger.debug(f"Wrote blackboard key '{key}' (version {new_version}, run {run_id})")
-            return new_version
+            return {
+                "key": key,
+                "value": value,
+                "version": new_version,
+                "created_by": created_by,
+                "created_at": created_at,
+                "updated_by": context.user_id,
+                "updated_at": now,
+            }
         except VersionConflictError:
             raise
         except Exception as exc:
@@ -383,7 +411,7 @@ class CosmosBlackboardStore:
         context: RequestContext,
         run_id: str,
         expected_version: Optional[int] = None,
-    ) -> int:
+    ) -> Dict[str, Any]:
         """Write a value to blackboard with optimistic concurrency."""
         if not key or not run_id:
             raise ValueError("key and run_id are required")
@@ -395,7 +423,7 @@ class CosmosBlackboardStore:
         try:
             # Try to read current document
             try:
-                current_doc = self._client.container_client(self._container).read_item(
+                current_doc = self._container.read_item(
                     item=doc_id,
                     partition_key=run_id,
                 )
@@ -417,6 +445,7 @@ class CosmosBlackboardStore:
             
             # Write new version
             new_version = current_version + 1
+            now = _now_iso()
             doc_data = {
                 "id": doc_id,
                 "partition_key": run_id,
@@ -430,12 +459,20 @@ class CosmosBlackboardStore:
                 "created_by": created_by,
                 "created_at": created_at,
                 "updated_by": context.user_id,
-                "updated_at": _now_iso(),
+                "updated_at": now,
             }
             
             self._container.upsert_item(body=doc_data)
             logger.debug(f"Wrote blackboard key '{key}' (version {new_version}, run {run_id})")
-            return new_version
+            return {
+                "key": key,
+                "value": value,
+                "version": new_version,
+                "created_by": created_by,
+                "created_at": created_at,
+                "updated_by": context.user_id,
+                "updated_at": now,
+            }
         except VersionConflictError:
             raise
         except Exception as exc:

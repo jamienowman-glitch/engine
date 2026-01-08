@@ -10,9 +10,23 @@ from engines.budget.models import BudgetPolicy, UsageEvent
 from engines.budget.repository import get_budget_policy_repo
 from engines.budget.service import BudgetService, get_budget_service
 from engines.common.identity import RequestContext, assert_context_matches, get_request_context
+from engines.common.error_envelope import error_response
 from engines.identity.auth import get_auth_context, require_tenant_membership
 
 router = APIRouter(prefix="/budget", tags=["budget"])
+
+
+def _ensure_membership(auth, context: RequestContext) -> None:
+    """Wrap tenant membership errors in uniform envelope."""
+    try:
+        require_tenant_membership(auth, context.tenant_id)
+    except HTTPException as exc:
+        error_response(
+            code="auth.tenant_membership_required",
+            message=str(exc.detail),
+            status_code=exc.status_code,
+            resource_kind="budget",
+        )
 
 
 @router.post("/usage")
@@ -21,7 +35,7 @@ def post_usage(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     events = payload if isinstance(payload, list) else [payload]
     for ev in events:
         assert_context_matches(context, ev.tenant_id, ev.env)
@@ -41,7 +55,7 @@ def list_usage(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     svc = get_budget_service()
     items = svc.query_usage(
         context,
@@ -64,7 +78,7 @@ def usage_summary(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     svc = get_budget_service()
     return svc.summary(context, window_days=window_days, surface=surface, group_by=group_by)
 
@@ -82,7 +96,7 @@ def upsert_policy(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     repo = get_budget_policy_repo()
     policy = BudgetPolicy(
         tenant_id=context.tenant_id,
@@ -104,7 +118,7 @@ def read_policy(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     repo = get_budget_policy_repo()
     policy = repo.get_policy(
         tenant_id=context.tenant_id,
@@ -114,5 +128,15 @@ def read_policy(
         app=app or context.app_id,
     )
     if not policy:
-        raise HTTPException(status_code=404, detail={"error": "budget_policy_not_found"})
+        error_response(
+            code="budget.policy_not_found",
+            message="Budget policy not found",
+            status_code=404,
+            resource_kind="budget_policy",
+            details={
+                "surface": surface or context.surface_id,
+                "mode": mode or context.mode,
+                "app": app or context.app_id,
+            },
+        )
     return policy.model_dump()

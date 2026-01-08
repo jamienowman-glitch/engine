@@ -387,7 +387,8 @@ class TestAnalyticsStoreHTTPRoutes:
             
             assert response.status_code == 400
             data = json.loads(response.data)
-            assert data["error_code"] == "invalid_payload"
+            assert data["error"]["code"] == "analytics.invalid_payload"
+            assert data["error"]["http_status"] == 400
     
     def test_http_ingest_missing_route_returns_503(self, client):
         """POST /analytics/ingest with missing route → 503."""
@@ -414,10 +415,11 @@ class TestAnalyticsStoreHTTPRoutes:
                         "payload": {"url": "..."},
                     },
                 )
-                
-                assert response.status_code == 503
-                data = json.loads(response.data)
-                assert data["error_code"] == "analytics_store.missing_route"
+            
+            assert response.status_code == 503
+            data = json.loads(response.data)
+            assert data["error"]["code"] == "analytics_store.missing_route"
+            assert data["error"]["http_status"] == 503
     
     def test_http_query_success(self, client):
         """GET /analytics/query with valid filters → 200."""

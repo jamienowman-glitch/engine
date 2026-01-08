@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +20,8 @@ from engines.media_v2.models import (
 )
 from engines.config import runtime_config
 
+def _backend_version() -> str:
+    return os.getenv("MEDIA_V2_BACKEND_VERSION", "media_v2_unknown")
 try:
     from google.cloud import firestore  # type: ignore
 except Exception:  # pragma: no cover
@@ -50,6 +55,22 @@ class MediaStorage(Protocol):
 
     def upload_bytes(self, tenant_id: str, env: str, asset_id: str, filename: str, content: bytes) -> str:
         raise NotImplementedError
+
+
+def _artifact_pipeline_hash(req: ArtifactCreateRequest) -> str:
+    payload = {
+        "parent_asset_id": req.parent_asset_id,
+        "tenant_id": req.tenant_id,
+        "env": req.env,
+        "kind": req.kind,
+        "uri": req.uri,
+        "start_ms": req.start_ms,
+        "end_ms": req.end_ms,
+        "track_label": req.track_label,
+        "meta": req.meta or {},
+    }
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 class S3MediaStorage:
@@ -330,6 +351,9 @@ class MediaService:
         return MediaAssetResponse(asset=asset, artifacts=self.repo.list_artifacts_for_asset(asset_id))
 
     def register_artifact(self, req: ArtifactCreateRequest) -> DerivedArtifact:
+        metadata = dict(req.meta or {})
+        metadata["pipeline_hash"] = _artifact_pipeline_hash(req)
+        metadata.setdefault("backend_version", _backend_version())
         artifact = DerivedArtifact(
             parent_asset_id=req.parent_asset_id,
             tenant_id=req.tenant_id,
@@ -339,7 +363,7 @@ class MediaService:
             start_ms=req.start_ms,
             end_ms=req.end_ms,
             track_label=req.track_label,
-            meta=req.meta,
+            meta=metadata,
         )
         return self.repo.create_artifact(artifact)
 

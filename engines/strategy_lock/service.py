@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import HTTPException
-
 from engines.common.identity import RequestContext
+from engines.common.error_envelope import error_response
 from engines.persistence.events import emit_persistence_event
 from engines.strategy_lock.models import StrategyDecision, StrategyLock, StrategyLockCreate, StrategyLockUpdate, StrategyStatus
 from engines.strategy_lock.repository import StrategyLockRepository
@@ -20,7 +19,12 @@ class StrategyLockService:
 
     def create_lock(self, ctx: RequestContext, payload: StrategyLockCreate) -> StrategyLock:
         if not ctx.user_id:
-            raise HTTPException(status_code=400, detail="user_id required for strategy lock creation")
+            error_response(
+                code="strategy_lock.user_id_required",
+                message="user_id required for strategy lock creation",
+                status_code=400,
+                resource_kind="strategy_lock",
+            )
         lock = StrategyLock(
             tenant_id=ctx.tenant_id,
             env=ctx.env,
@@ -53,7 +57,13 @@ class StrategyLockService:
     def get_lock(self, ctx: RequestContext, lock_id: str, version: Optional[int] = None) -> StrategyLock:
         lock = self.repo.get_version(ctx, lock_id, version) if version is not None else self.repo.get(ctx, lock_id)
         if not lock:
-            raise HTTPException(status_code=404, detail="strategy_lock_not_found")
+            error_response(
+                code="strategy_lock.not_found",
+                message="strategy lock not found",
+                status_code=404,
+                resource_kind="strategy_lock",
+                details={"lock_id": lock_id, "version": version},
+            )
         return lock
 
     def update_lock(self, ctx: RequestContext, lock_id: str, payload: StrategyLockUpdate) -> StrategyLock:
@@ -125,22 +135,37 @@ class StrategyLockService:
     def require_strategy_lock_or_raise(self, ctx: RequestContext, surface: Optional[str], action: str) -> None:
         decision = self.check_action_allowed(ctx, surface, action)
         if not decision.allowed:
-            detail = {"error": decision.reason or "strategy_lock_required", "action": action}
+            details = {"action": action}
             if decision.lock_id:
-                detail["lock_id"] = decision.lock_id
+                details["lock_id"] = decision.lock_id
             if decision.three_wise_verdict:
-                detail["three_wise_verdict"] = decision.three_wise_verdict
-            raise HTTPException(status_code=409, detail=detail)
+                details["three_wise_verdict"] = decision.three_wise_verdict
+            error_response(
+                code=decision.reason or "strategy_lock_required",
+                message="Strategy lock required",
+                status_code=409,
+                resource_kind="strategy_lock",
+                details=details,
+            )
 
     def require_three_wise_approval_or_raise(self, ctx: RequestContext, lock_id: str) -> None:
         lock = self.get_lock(ctx, lock_id)
         verdict = self._three_wise_verdict(ctx, lock)
         if not lock.three_wise_id:
-            raise HTTPException(status_code=409, detail={"error": "three_wise_required", "lock_id": lock_id})
-        if verdict != ThreeWiseVerdict.approve:
-            raise HTTPException(
+            error_response(
+                code="three_wise_required",
+                message="Three-wise approval required",
                 status_code=409,
-                detail={"error": "three_wise_verdict_required", "lock_id": lock_id, "three_wise_verdict": verdict.value if verdict else None},
+                resource_kind="strategy_lock",
+                details={"lock_id": lock_id},
+            )
+        if verdict != ThreeWiseVerdict.approve:
+            error_response(
+                code="three_wise_verdict_required",
+                message="Three-wise verdict not approved",
+                status_code=409,
+                resource_kind="strategy_lock",
+                details={"lock_id": lock_id, "three_wise_verdict": verdict.value if verdict else None},
             )
 
     @staticmethod

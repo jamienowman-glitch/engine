@@ -11,6 +11,30 @@ from engines.kill_switch.models import KillSwitch, KillSwitchUpdate
 from engines.kill_switch.service import KillSwitchService
 from engines.kill_switch.repository import InMemoryKillSwitchRepository
 from engines.nexus.hardening.gate_chain import GateChain
+
+
+@pytest.fixture(autouse=True)
+def fake_strategy_policy_tabular(monkeypatch):
+    class FakeTabularStoreService:
+        _tables: dict[str, dict[str, dict]] = {}
+
+        def __init__(self, context, resource_kind="strategy_policy_store"):
+            self.context = context
+            self.resource_kind = resource_kind
+
+        def upsert(self, table_name, key, data):
+            table = FakeTabularStoreService._tables.setdefault(table_name, {})
+            table[key] = data
+
+        def get(self, table_name, key):
+            return FakeTabularStoreService._tables.get(table_name, {}).get(key)
+
+        def list_by_prefix(self, table_name, key_prefix):
+            table = FakeTabularStoreService._tables.get(table_name, {})
+            return [record for k, record in table.items() if k.startswith(key_prefix)]
+
+    FakeTabularStoreService._tables = {}
+    monkeypatch.setattr("engines.strategy_lock.policy.TabularStoreService", FakeTabularStoreService)
 from engines.nexus.hardening.rate_limit import RateLimitService
 
 # Mock Dependencies
@@ -98,7 +122,10 @@ def test_gate_chain_requires_budget_policy():
 
     with pytest.raises(HTTPException) as exc:
         gate_chain._enforce_budget(ctx, "cards", "act")
-    assert exc.value.detail["error"] == "budget_threshold_missing"
+    detail = exc.value.detail["error"]
+    assert detail["code"] == "budget_threshold_missing"
+    assert detail["gate"] == "budget"
+    assert detail["http_status"] == 403
 
 
 class _AllowAllKillSwitch:
@@ -109,6 +136,9 @@ class _AllowAllKillSwitch:
 class _AllowAllFirearms:
     def require_licence_or_raise(self, *args, **kwargs):
         return None
+
+    def check_access(self, *args, **kwargs):
+        return SimpleNamespace(allowed=True, reason="pass", strategy_lock_required=False, required_license_types=[])
 
 
 class _AllowAllStrategyLock:
@@ -123,7 +153,10 @@ class _StubBudgetService:
 
 class _AvailableKpiService:
     def list_corridors(self, ctx, surface):
-        return [object()]
+        return [SimpleNamespace(kpi_name="kpi_demo", floor=None, ceiling=None)]
+
+    def latest_raw_measurement(self, ctx, surface, kpi_name):
+        return None
 
 
 class _StableTemperatureService:

@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 
 from engines.common.identity import RequestContext, get_request_context
+from engines.common.error_envelope import build_error_envelope
 from engines.analytics.service_reject import (
     AnalyticsStoreServiceRejectOnMissing,
     MissingAnalyticsStoreRoute,
@@ -23,6 +24,17 @@ from engines.analytics.service_reject import (
 logger = logging.getLogger(__name__)
 
 analytics_routes = Blueprint("analytics", __name__, url_prefix="/analytics")
+
+
+def _error_response(code: str, message: str, status: int, details: Dict[str, Any] | None = None):
+    envelope = build_error_envelope(
+        code=code,
+        message=message,
+        status_code=status,
+        resource_kind="analytics_store",
+        details=details or {},
+    )
+    return jsonify(envelope.model_dump()), status
 
 
 @analytics_routes.route("/ingest", methods=["POST"])
@@ -55,17 +67,11 @@ def ingest_analytics():
         # Validate required fields
         event_type = data.get("event_type")
         if not event_type:
-            return (
-                jsonify({"error_code": "invalid_payload", "message": "event_type required"}),
-                400,
-            )
+            return _error_response("analytics.invalid_payload", "event_type required", 400)
         
         payload = data.get("payload", {})
         if not isinstance(payload, dict):
-            return (
-                jsonify({"error_code": "invalid_payload", "message": "payload must be dict"}),
-                400,
-            )
+            return _error_response("analytics.invalid_payload", "payload must be dict", 400)
         
         # Extract attribution fields
         utm_source = data.get("utm_source")
@@ -106,27 +112,15 @@ def ingest_analytics():
     
     except MissingAnalyticsStoreRoute as e:
         logger.error(f"Analytics route missing: {str(e)}")
-        return (
-            jsonify({
-                "error_code": e.error_code,
-                "message": e.message,
-            }),
-            e.status_code,
-        )
+        return _error_response(e.error_code, e.message, e.status_code)
     
     except RuntimeError as e:
         logger.error(f"Analytics ingest error: {str(e)}")
-        return (
-            jsonify({"error_code": "ingest_failed", "message": str(e)}),
-            500,
-        )
+        return _error_response("analytics.ingest_failed", str(e), 500)
     
     except Exception as e:
         logger.exception("Unexpected analytics ingest error")
-        return (
-            jsonify({"error_code": "internal_error", "message": "See logs"}),
-            500,
-        )
+        return _error_response("analytics.internal_error", "See logs", 500)
 
 
 @analytics_routes.route("/query", methods=["GET"])
@@ -160,10 +154,7 @@ def query_analytics():
             if limit < 1 or limit > 10000:
                 raise ValueError("limit must be between 1 and 10000")
         except (ValueError, TypeError) as e:
-            return (
-                jsonify({"error_code": "invalid_query", "message": str(e)}),
-                400,
-            )
+            return _error_response("analytics.invalid_query", str(e), 400)
         
         # Build filters from query params
         filters = {}
@@ -199,27 +190,15 @@ def query_analytics():
     
     except MissingAnalyticsStoreRoute as e:
         logger.error(f"Analytics route missing: {str(e)}")
-        return (
-            jsonify({
-                "error_code": e.error_code,
-                "message": e.message,
-            }),
-            e.status_code,
-        )
+        return _error_response(e.error_code, e.message, e.status_code)
     
     except RuntimeError as e:
         logger.error(f"Analytics query error: {str(e)}")
-        return (
-            jsonify({"error_code": "query_failed", "message": str(e)}),
-            500,
-        )
+        return _error_response("analytics.query_failed", str(e), 500)
     
     except Exception as e:
         logger.exception("Unexpected analytics query error")
-        return (
-            jsonify({"error_code": "internal_error", "message": "See logs"}),
-            500,
-        )
+        return _error_response("analytics.internal_error", "See logs", 500)
 
 
 @analytics_routes.route("/aggregate", methods=["GET"])
@@ -243,10 +222,7 @@ def aggregate_analytics():
         
         metric = request.args.get("metric")
         if not metric:
-            return (
-                jsonify({"error_code": "invalid_query", "message": "metric required"}),
-                400,
-            )
+            return _error_response("analytics.invalid_query", "metric required", 400)
         
         start_time = request.args.get("start_time")
         end_time = request.args.get("end_time")
@@ -274,27 +250,15 @@ def aggregate_analytics():
     
     except MissingAnalyticsStoreRoute as e:
         logger.error(f"Analytics route missing: {str(e)}")
-        return (
-            jsonify({
-                "error_code": e.error_code,
-                "message": e.message,
-            }),
-            e.status_code,
-        )
+        return _error_response(e.error_code, e.message, e.status_code)
     
     except RuntimeError as e:
         logger.error(f"Analytics aggregate error: {str(e)}")
-        return (
-            jsonify({"error_code": "aggregate_failed", "message": str(e)}),
-            500,
-        )
+        return _error_response("analytics.aggregate_failed", str(e), 500)
     
     except Exception as e:
         logger.exception("Unexpected analytics aggregate error")
-        return (
-            jsonify({"error_code": "internal_error", "message": "See logs"}),
-            500,
-        )
+        return _error_response("analytics.internal_error", "See logs", 500)
 
 
 @analytics_routes.route("/event/<event_id>", methods=["DELETE"])
@@ -312,10 +276,7 @@ def delete_analytics_event(event_id: str):
         
         # Validate event_id format
         if not event_id or len(event_id.strip()) == 0:
-            return (
-                jsonify({"error_code": "invalid_event_id"}),
-                400,
-            )
+            return _error_response("analytics.invalid_event_id", "invalid event id", 400)
         
         # Delegate to adapter (implementation-specific)
         # For now, return 204 (success) or 404 (not found)
@@ -332,17 +293,8 @@ def delete_analytics_event(event_id: str):
     
     except MissingAnalyticsStoreRoute as e:
         logger.error(f"Analytics route missing: {str(e)}")
-        return (
-            jsonify({
-                "error_code": e.error_code,
-                "message": e.message,
-            }),
-            e.status_code,
-        )
+        return _error_response(e.error_code, e.message, e.status_code)
     
     except Exception as e:
         logger.exception("Unexpected analytics delete error")
-        return (
-            jsonify({"error_code": "internal_error", "message": "See logs"}),
-            500,
-        )
+        return _error_response("analytics.internal_error", "See logs", 500)

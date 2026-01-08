@@ -80,7 +80,7 @@ class BlackboardStoreService:
         value: Any,
         run_id: str,
         expected_version: Optional[int] = None,
-    ) -> int:
+    ) -> Dict[str, Any]:
         """Write a value to shared blackboard with optimistic concurrency.
         
         Args:
@@ -89,7 +89,7 @@ class BlackboardStoreService:
             run_id: provenance identifier
             expected_version: if provided, only write if current version matches
         
-        Returns: new version number
+        Returns: dict with key, value, version, created_by, created_at, updated_by, updated_at
         Raises: VersionConflictError if version mismatch (concurrent update)
         """
         try:

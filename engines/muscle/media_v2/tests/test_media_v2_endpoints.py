@@ -4,8 +4,14 @@ from io import BytesIO
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from engines.identity.models import App, Surface
+from engines.identity.repository import InMemoryIdentityRepository
+from engines.identity.state import set_identity_repo
 from engines.identity.jwt_service import default_jwt_service
-from engines.media_v2.routes import router as media_router
+from engines.media_v2.routes import (
+    register_error_handlers as register_media_error_handlers,
+    router as media_router,
+)
 from engines.media_v2.service import InMemoryMediaRepository, MediaService, set_media_service
 
 _client: TestClient | None = None
@@ -19,11 +25,6 @@ class StubS3Storage:
         key = f"tenants/{tenant_id}/{env}/media_v2/{asset_id}/{filename}"
         self.uploads.append({"tenant": tenant_id, "env": env, "asset_id": asset_id, "key": key, "body": content})
         return f"s3://test-bucket/{key}"
-
-
-class FailingStorage:
-    def upload_bytes(self, tenant_id, env, asset_id, filename, content):
-        raise RuntimeError("boom")
 
 
 def _reset_media_service(storage=None):
@@ -48,21 +49,45 @@ def _auth_token(tenant_id: str = "t_test", user_id: str = "u1"):
 MEDIA_PROJECT_ID = "p_media"
 
 
-def _auth_headers(tenant_id: str = "t_test", env: str = "dev", user_id: str = "u1"):
+def _auth_headers(tenant_id: str = "t_test", user_id: str = "u1", mode: str = "lab"):
     return {
         "Authorization": f"Bearer {_auth_token(tenant_id=tenant_id, user_id=user_id)}",
         "X-Tenant-Id": tenant_id,
-        "X-Env": env,
         "X-Project-Id": MEDIA_PROJECT_ID,
+        "X-Mode": mode,
     }
+
+
+def _assert_error_envelope(resp, expected_code: str | None = None, expected_status: int | None = None):
+    assert resp.status_code == expected_status if expected_status else resp.status_code >= 400
+    payload = resp.json()
+    assert isinstance(payload, dict)
+    error = payload.get("error")
+    assert isinstance(error, dict)
+    if expected_code:
+        assert error.get("code") == expected_code
+    if expected_status:
+        assert error.get("http_status") == expected_status
+    return error
 
 
 def setup_module(_module):
     os.environ.setdefault("AUTH_JWT_SIGNING", "media-secret")
+    os.environ.setdefault("MEDIA_V2_ALLOW_LOCAL_STORAGE", "1")
+    os.environ.setdefault("ENV", "dev")
     _reset_media_service()
+    identity_repo = InMemoryIdentityRepository()
+    tenants = ["t_test", "t_tenant_a", "t_tenant_b"]
+    for tenant in tenants:
+        surface = Surface(tenant_id=tenant, name=f"default-{tenant}")
+        identity_repo.create_surface(surface)
+        app_record = App(tenant_id=tenant, name=f"default-app-{tenant}")
+        identity_repo.create_app(app_record)
+    set_identity_repo(identity_repo)
     global _client
     app = FastAPI()
     app.include_router(media_router)
+    register_media_error_handlers(app)
     _client = TestClient(app, raise_server_exceptions=False)
 
 
@@ -126,9 +151,13 @@ def test_tenant_isolation_and_prefixing():
 def test_missing_headers_rejected():
     client = _client
     files = {"file": ("audio.wav", BytesIO(b"12345"), "audio/wav")}
-    headers = {"X-Tenant-Id": "t_test", "X-Env": "dev", "X-Project-Id": MEDIA_PROJECT_ID}
+    headers = {
+        "X-Tenant-Id": "t_test",
+        "X-Project-Id": MEDIA_PROJECT_ID,
+        "X-Mode": "lab",
+    }
     resp = client.post("/media-v2/assets", files=files, data={"kind": "audio"}, headers=headers)
-    assert resp.status_code == 401
+    assert _assert_error_envelope(resp, expected_status=401)
 
 
 def test_missing_project_id_rejected():
@@ -137,7 +166,7 @@ def test_missing_project_id_rejected():
     headers = dict(_auth_headers())
     headers.pop("X-Project-Id", None)
     resp = client.post("/media-v2/assets", files=files, data={"kind": "audio"}, headers=headers)
-    assert resp.status_code == 400
+    assert _assert_error_envelope(resp, expected_status=400)
 
 
 def test_cross_tenant_rejected():
@@ -146,7 +175,7 @@ def test_cross_tenant_rejected():
     headers["X-Tenant-Id"] = "t_test"
     files = {"file": ("audio.wav", BytesIO(b"data"), "audio/wav")}
     resp = client.post("/media-v2/assets", files=files, data={"kind": "audio"}, headers=headers)
-    assert resp.status_code == 403
+    assert _assert_error_envelope(resp, expected_status=403)
 
 
 def test_remote_payload_tenant_mismatch():
@@ -160,7 +189,7 @@ def test_remote_payload_tenant_mismatch():
         "source_uri": "gs://bucket/video.mp4",
     }
     resp = client.post("/media-v2/assets", json=payload, headers=headers)
-    assert resp.status_code == 400
+    assert _assert_error_envelope(resp, expected_status=400)
 
 
 def test_video_region_summary_validation():
@@ -203,13 +232,19 @@ def test_video_region_summary_validation():
     assert art.meta["backend_version"] == "v1"
 
 
-def test_prod_mode_rejects_local_fallback():
-    _reset_media_service(FailingStorage())
+def test_saas_missing_raw_bucket_rejected(monkeypatch):
+    _reset_media_service(StubS3Storage())
     client = _client
-    headers = _auth_headers(env="prod")
+    monkeypatch.delenv("MEDIA_V2_ALLOW_LOCAL_STORAGE", raising=False)
+    monkeypatch.delenv("RAW_BUCKET", raising=False)
+    monkeypatch.delenv("GCP_PROJECT", raising=False)
+    monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
+    monkeypatch.setenv("ENV", "prod")
+    headers = _auth_headers(mode="saas")
     files = {"file": ("asset.bin", BytesIO(b"bytes"), "application/octet-stream")}
     resp = client.post("/media-v2/assets", files=files, data={}, headers=headers)
-    assert resp.status_code == 500
+    error = _assert_error_envelope(resp, expected_code="media_v2.raw_bucket_missing", expected_status=500)
+    assert error["resource_kind"] == "media_v2"
 
 
 def test_register_vector_scene_artifact_meta():
@@ -224,6 +259,30 @@ def test_register_vector_scene_artifact_meta():
     assert art.meta.get("layout_hash") == "abc"
 
 
+def test_artifact_meta_records_pipeline_hash_and_backend(monkeypatch):
+    monkeypatch.setenv("MEDIA_V2_BACKEND_VERSION", "media_v2_test_v1")
+    from engines.media_v2.service import MediaService, InMemoryMediaRepository, LocalMediaStorage
+    from engines.media_v2.models import MediaUploadRequest, ArtifactCreateRequest
+
+    svc = MediaService(repo=InMemoryMediaRepository(), storage=LocalMediaStorage())
+    asset = svc.register_upload(MediaUploadRequest(tenant_id="t_meta", env="test", kind="audio", source_uri="s3://bucket/asset"), "file.bin", b"data")
+
+    def build_request():
+        return ArtifactCreateRequest(
+            tenant_id="t_meta",
+            env="test",
+            parent_asset_id=asset.id,
+            kind="audio_segment",
+            uri="s3://bucket/segment",
+            meta={"note": "meta"},
+        )
+
+    art_a = svc.register_artifact(build_request())
+    art_b = svc.register_artifact(build_request())
+    assert art_a.meta["pipeline_hash"] == art_b.meta["pipeline_hash"]
+    assert art_a.meta["backend_version"] == "media_v2_test_v1"
+
+
 def test_get_requires_auth():
     """Verify that GET endpoints require authentication."""
     _reset_media_service()
@@ -232,23 +291,23 @@ def test_get_requires_auth():
     # Provide context headers but no Auth header to test 401
     ctx_headers = {
         "X-Tenant-Id": "t_test",
-        "X-Env": "dev",
         "X-Project-Id": MEDIA_PROJECT_ID,
     }
+    ctx_headers["X-Mode"] = "lab"
     
     # 1. Test GET /assets/{id} without auth
     resp_get = client.get("/media-v2/assets/any-id", headers=ctx_headers)
-    assert resp_get.status_code == 401
+    _assert_error_envelope(resp_get, expected_status=401)
 
     # 2. Test GET /assets (list) without auth
     resp_list = client.get("/media-v2/assets", params={"tenant_id": "t_test"}, headers=ctx_headers)
-    assert resp_list.status_code == 401
+    _assert_error_envelope(resp_list, expected_status=401)
 
     # 3. Test GET /assets (list) with valid auth but mismatched tenant
     headers = _auth_headers(tenant_id="t_test", user_id="u1")
     # Requesting t_other not in token
     resp_mismatch = client.get("/media-v2/assets", params={"tenant_id": "t_other"}, headers=headers)
-    assert resp_mismatch.status_code == 403
+    _assert_error_envelope(resp_mismatch, expected_status=403)
 
     # 4. Success case for list
     resp_ok = client.get("/media-v2/assets", params={"tenant_id": "t_test"}, headers=headers)

@@ -17,11 +17,28 @@ from engines.common.identity import (
     get_request_context,
     validate_identity_precedence,
 )
+from engines.common.error_envelope import (
+    cursor_invalid_error,
+    error_response,
+    missing_route_error,
+)
 from engines.identity.auth import get_auth_context, require_tenant_membership
 from engines.event_spine.service_reject import EventSpineServiceRejectOnMissing, MissingEventSpineRoute
 from engines.event_spine.cloud_event_spine_store import SpineEvent
 
 router = APIRouter(prefix="/events", tags=["event_spine"])
+
+
+def _ensure_membership(auth, context: RequestContext) -> None:
+    try:
+        require_tenant_membership(auth, context.tenant_id)
+    except HTTPException as exc:
+        error_response(
+            code="auth.tenant_membership_required",
+            message=str(exc.detail),
+            status_code=exc.status_code,
+            resource_kind="event_spine",
+        )
 
 
 # ===== Request/Response Models =====
@@ -87,7 +104,7 @@ def append_event(
     Raises HTTP 403 (auth.identity_override) on mismatch.
     Raises HTTP 503 (event_spine.missing_route) if route missing.
     """
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     
     # AUTH-01: Enforce identity precedence
     validate_identity_precedence(
@@ -116,17 +133,28 @@ def append_event(
         )
         return AppendEventResponse(event_id=event_id)
     except MissingEventSpineRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="event_spine",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=e.status_code,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_response(
+            code="event_spine.invalid_request",
+            message=str(e),
+            status_code=400,
+            resource_kind="event_spine",
+            details={"run_id": payload.run_id},
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Append failed: {str(e)}")
+        error_response(
+            code="event_spine.append_failed",
+            message=f"Append failed: {str(e)}",
+            status_code=500,
+            resource_kind="event_spine",
+            details={"run_id": payload.run_id, "error": str(e)},
+        )
 
 
 @router.get("/replay", response_model=ReplayResponse)
@@ -143,7 +171,7 @@ def replay_timeline(
     Used to reconstruct timeline across restarts.
     Raises HTTP 503 (event_spine.missing_route) if route missing.
     """
-    require_tenant_membership(auth, context.tenant_id)
+    _ensure_membership(auth, context)
     
     try:
         svc = EventSpineServiceRejectOnMissing(context)
@@ -183,15 +211,25 @@ def replay_timeline(
             cursor=last_event_id,
         )
     except MissingEventSpineRoute as e:
-        raise HTTPException(
+        missing_route_error(
+            resource_kind="event_spine",
+            tenant_id=context.tenant_id,
+            env=context.env,
             status_code=e.status_code,
-            detail={
-                "error_code": e.error_code,
-                "message": e.message,
-            },
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Replay failed: {str(e)}")
+        message = str(e)
+        if after_event_id:
+            lower_msg = message.lower()
+            if "cursor" in lower_msg or "invalid" in lower_msg:
+                cursor_invalid_error(after_event_id, domain="event_spine")
+        error_response(
+            code="event_spine.replay_failed",
+            message=message,
+            status_code=500,
+            resource_kind="event_spine",
+            details={"after_event_id": after_event_id, "run_id": run_id},
+        )
 
 
 @router.get("/list", response_model=ReplayResponse)
