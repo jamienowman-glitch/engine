@@ -11,6 +11,8 @@ from engines.identity.state import identity_repo
 from engines.identity.auth import get_auth_context, require_tenant_role
 from engines.common.secrets import SecretManagerClient, SecretManagerError
 from engines.logging.audit import emit_audit_event
+from engines.common.error_envelope import error_response
+from engines.nexus.hardening.gate_chain import get_gate_chain
 
 router = APIRouter(prefix="/tenants")
 
@@ -78,8 +80,16 @@ def list_key_slots(
 ):
     assert_context_matches(context, tenant_id, context.env)
     require_tenant_role(auth, tenant_id, ["owner", "admin"])
-    configs = _svc.list_configs(tenant_id)
-    return [_to_response(cfg) for cfg in configs]
+    try:
+        configs = _svc.list_configs(tenant_id)
+        return [_to_response(cfg) for cfg in configs]
+    except Exception as e:
+        error_response(
+            code="keys.list_error",
+            message=str(e),
+            status_code=500,
+            resource_kind="keys"
+        )
 
 
 @router.get("/{tenant_id}/keys/{slot}", response_model=KeySlotResponse)
@@ -93,10 +103,26 @@ def get_key_slot(
     env_value = env or context.env
     assert_context_matches(context, tenant_id, env_value)
     require_tenant_role(auth, tenant_id, ["owner", "admin"])
-    cfg = _svc.get_config(tenant_id, env_value, slot)
-    if not cfg:
-        raise HTTPException(status_code=404, detail="key slot not found")
-    return _to_response(cfg)
+    try:
+        cfg = _svc.get_config(tenant_id, env_value, slot)
+        if not cfg:
+            error_response(
+                code="keys.not_found",
+                message="key slot not found",
+                status_code=404,
+                resource_kind="keys",
+                details={"slot": slot}
+            )
+        return _to_response(cfg)
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_response(
+            code="keys.get_error",
+            message=str(e),
+            status_code=500,
+            resource_kind="keys"
+        )
 
 
 @router.put("/{tenant_id}/keys/{slot}", response_model=KeySlotResponse)
@@ -107,21 +133,43 @@ def put_key_slot(
     context: RequestContext = Depends(get_request_context),
     auth=Depends(get_auth_context),
 ):
-    # TODO: enforce admin-only access once auth is wired
     if slot != payload.slot:
-        raise HTTPException(status_code=400, detail="slot path/body mismatch")
+        error_response(
+            code="keys.validation_error",
+            message="slot path/body mismatch",
+            status_code=400,
+            resource_kind="keys"
+        )
     assert_context_matches(context, tenant_id, payload.env)
     require_tenant_role(auth, tenant_id, ["owner", "admin"])
-    cfg = _svc.upsert_config(
-        tenant_id=tenant_id,
-        env=payload.env,
-        slot=payload.slot,
-        provider=payload.provider,
-        secret_value=payload.secret_value,
-        metadata=payload.metadata or {},
+
+    # GateChain Check
+    get_gate_chain().run(
+        ctx=context,
+        action="keys.upsert",
+        surface="keys",
+        subject_type="key_slot",
+        subject_id=slot
     )
-    emit_audit_event(context, action="keys.upsert", surface="keys", metadata={"slot": payload.slot, "env": payload.env})
-    return _to_response(cfg)
+
+    try:
+        cfg = _svc.upsert_config(
+            tenant_id=tenant_id,
+            env=payload.env,
+            slot=payload.slot,
+            provider=payload.provider,
+            secret_value=payload.secret_value,
+            metadata=payload.metadata or {},
+        )
+        emit_audit_event(context, action="keys.upsert", surface="keys", metadata={"slot": payload.slot, "env": payload.env})
+        return _to_response(cfg)
+    except Exception as e:
+        error_response(
+            code="keys.upsert_error",
+            message=str(e),
+            status_code=500,
+            resource_kind="keys"
+        )
 
 
 # POST alias for creating slots
@@ -134,15 +182,33 @@ def create_key_slot(
 ):
     assert_context_matches(context, tenant_id, payload.env)
     require_tenant_role(auth, tenant_id, ["owner", "admin"])
-    cfg = _svc.upsert_config(
-        tenant_id=tenant_id,
-        env=payload.env,
-        slot=payload.slot,
-        provider=payload.provider,
-        secret_value=payload.secret_value,
-        metadata=payload.metadata or {},
+
+    # GateChain Check
+    get_gate_chain().run(
+        ctx=context,
+        action="keys.upsert",
+        surface="keys",
+        subject_type="key_slot",
+        subject_id=payload.slot
     )
-    return _to_response(cfg)
+
+    try:
+        cfg = _svc.upsert_config(
+            tenant_id=tenant_id,
+            env=payload.env,
+            slot=payload.slot,
+            provider=payload.provider,
+            secret_value=payload.secret_value,
+            metadata=payload.metadata or {},
+        )
+        return _to_response(cfg)
+    except Exception as e:
+        error_response(
+            code="keys.upsert_error",
+            message=str(e),
+            status_code=500,
+            resource_kind="keys"
+        )
 
 
 def set_key_service(service: KeyConfigService) -> None:

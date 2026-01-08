@@ -50,11 +50,29 @@ class FirestoreFeatureFlagRepository:
     def delete_flags(self, tenant_id: str, env: str) -> None:
         self._doc(tenant_id, env).delete()
 
+class InMemoryFeatureFlagRepository:
+    def __init__(self):
+        self.flags: Dict[str, FeatureFlags] = {}
+
+    def get_flags(self, tenant_id: str, env: str) -> Optional[FeatureFlags]:
+        key = f"{tenant_id}{DOC_ID_DELIMITER}{env}"
+        return self.flags.get(key)
+
+    def set_flags(self, flags: FeatureFlags) -> FeatureFlags:
+        key = f"{flags.tenant_id}{DOC_ID_DELIMITER}{flags.env}"
+        self.flags[key] = flags
+        return flags
+
+    def delete_flags(self, tenant_id: str, env: str) -> None:
+        key = f"{tenant_id}{DOC_ID_DELIMITER}{env}"
+        if key in self.flags:
+            del self.flags[key]
 
 class FeatureFlagRepository:
     def __init__(self, backend: Optional[str] = None, firestore_client: Optional[Any] = None):
         # GAP-G1: No memory fallback. Must use Firestore in production.
         self._firestore_repo: Optional[FirestoreFeatureFlagRepository] = None
+        self._memory_repo: Optional[InMemoryFeatureFlagRepository] = None
         self._backend = (backend or os.getenv(FEATURE_FLAGS_BACKEND_ENV, "")).lower()
 
         if self._backend == "firestore" or not self._backend:
@@ -66,6 +84,8 @@ class FeatureFlagRepository:
                     f"Failed to initialize Firestore feature flags backend: {e}. "
                     f"Set FEATURE_FLAGS_BACKEND=firestore and ensure GCP credentials are available."
                 ) from e
+        elif self._backend == "memory" or self._backend == "in_memory":
+             self._memory_repo = InMemoryFeatureFlagRepository()
         else:
             raise RuntimeError(
                 f"Unsupported FEATURE_FLAGS_BACKEND={self._backend}. "
@@ -73,17 +93,21 @@ class FeatureFlagRepository:
             )
 
     def get_flags(self, tenant_id: str, env: str) -> Optional[FeatureFlags]:
-        # All reads go through Firestore (no in-memory fallback)
+        if self._memory_repo:
+            return self._memory_repo.get_flags(tenant_id, env)
         return self._firestore_repo.get_flags(tenant_id, env) if self._firestore_repo else None
 
     def set_flags(self, flags: FeatureFlags) -> FeatureFlags:
-        # All writes go through Firestore
+        if self._memory_repo:
+            return self._memory_repo.set_flags(flags)
         if self._firestore_repo:
             self._firestore_repo.set_flags(flags)
         return flags
 
     def delete_flags(self, tenant_id: str, env: str) -> None:
-        if self._firestore_repo:
+        if self._memory_repo:
+            self._memory_repo.delete_flags(tenant_id, env)
+        elif self._firestore_repo:
             self._firestore_repo.delete_flags(tenant_id, env)
 
     def get_global_flags(self, env: str) -> Optional[FeatureFlags]:
