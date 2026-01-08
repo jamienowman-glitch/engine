@@ -1,0 +1,4 @@
+platform_id	scope_id	scope_name	scope_type	scope_description	required_for_mvp	mvp_reason	danger_level	notes	source_urls
+gemini	generate_content	Generate Content	api	Generate text/media content	YES	Core Function	low	secret_ref: aistudio_api_key	-
+gemini	embed_content	Embed Content	api	Create embeddings	YES	Core Function	low	secret_ref: aistudio_api_key	-
+jules	delegate_task	Delegate Task	agent	Delegate work to Jules Agent	YES	Core Function	low	secret_ref: jules_auth_token	-

@@ -1,0 +1,13 @@
+id: "video_timeline"
+name: "Video Timeline Muscle"
+summary: "Manage video projects, sequences, tracks, and clips."
+scopes:
+  - name: "video.timeline.read"
+    description: "Read access to timeline data"
+    handler: "handle_read"
+    input_model: "ReadInput"
+  
+  - name: "video.timeline.write"
+    description: "Write access to timeline data (edit, move, split)"
+    handler: "handle_write"
+    input_model: "WriteInput"

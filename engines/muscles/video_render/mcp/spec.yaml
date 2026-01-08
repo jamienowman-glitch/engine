@@ -1,0 +1,13 @@
+id: "video_render"
+name: "Video Render Muscle"
+summary: "Submit and track video rendering jobs."
+scopes:
+  - name: "video.render.submit"
+    description: "Submit a new render job"
+    handler: "handle_submit"
+    input_model: "SubmitInput"
+  
+  - name: "video.render.status"
+    description: "Get status of a render job"
+    handler: "handle_status"
+    input_model: "StatusInput"
