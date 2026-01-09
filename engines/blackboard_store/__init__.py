@@ -1,19 +1,5 @@
-"""Blackboard store module (Agent A).
+import warnings
+from engines.run_memory.service import RunMemoryService as BlackboardStoreService
+from engines.run_memory.cloud_run_memory import VersionConflictError
 
-Provides persistent shared coordination state with versioning and optimistic concurrency.
-Scope: tenant / mode / project / run.
-"""
-
-from engines.blackboard_store.service import BlackboardStoreService
-from engines.blackboard_store.service_reject import (
-    BlackboardStoreServiceRejectOnMissing,
-    MissingBlackboardStoreRoute,
-)
-from engines.blackboard_store.cloud_blackboard_store import VersionConflictError
-
-__all__ = [
-    "BlackboardStoreService",
-    "BlackboardStoreServiceRejectOnMissing",
-    "MissingBlackboardStoreRoute",
-    "VersionConflictError",
-]
+warnings.warn("engines.blackboard_store is deprecated. Use engines.run_memory instead.", DeprecationWarning, stacklevel=2)

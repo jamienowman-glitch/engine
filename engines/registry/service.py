@@ -10,7 +10,7 @@ from engines.common.error_envelope import cursor_invalid_error, error_response
 from engines.common.identity import RequestContext
 from engines.registry.repository import ComponentRegistryRepository
 
-SpecKind = Literal["atom", "component", "lens"]
+SpecKind = Literal["atom", "component", "lens", "graphlens", "canvas"]
 
 
 class ComponentSpec(BaseModel):
@@ -80,7 +80,7 @@ class RegistrySpecsPayload(BaseModel):
 class ComponentRegistryService:
     """Service exposing registry snapshots with deterministic ordering."""
 
-    SPEC_KINDS = {"atom", "component", "lens"}
+    SPEC_KINDS = {"atom", "component", "lens", "graphlens", "canvas"}
     SPEC_PAGE_SIZE = 50
 
     def __init__(self, repo: Optional[ComponentRegistryRepository] = None) -> None:

@@ -5,7 +5,7 @@ Provides:
   - EventSpineServiceRejectOnMissing: TL-01 compliance (reject on missing route, HTTP 503)
   - Cursor-based replay for timeline reconstruction across restarts
 - memory_store: persistent session memory with configurable TTL
-- blackboard_store: persistent shared coordination state with versioning
+- run_memory: persistent shared coordination state with versioning
 """
 
 from engines.event_spine.service import EventSpineService

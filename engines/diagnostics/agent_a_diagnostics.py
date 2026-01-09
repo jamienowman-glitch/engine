@@ -3,7 +3,7 @@
 Startup proceeds with warnings for missing:
 - event_spine
 - memory_store
-- blackboard_store
+- run_memory
 
 Operations refuse silent fallback (no in-memory, no filesystem).
 No startup failure; only warnings logged.
@@ -44,7 +44,7 @@ class EnginesDiagnosticsService:
     CRITICAL_RESOURCES = [
         "event_spine",
         "memory_store",
-        "blackboard_store",
+        "run_memory",
     ]
     
     def __init__(self, context: RequestContext) -> None:
