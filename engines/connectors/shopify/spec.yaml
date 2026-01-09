@@ -1,0 +1,102 @@
+id: "shopify"
+name: "Shopify Admin"
+summary: "Manage products, orders, customers, and more via Shopify Admin API."
+scopes:
+  # --- Core Resources ---
+  - name: "graphql_proxy"
+    description: "Execute raw GraphQL queries against the Admin API."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+    firearms_required: false
+
+  # --- Collections (Smart & Custom) ---
+  - name: "read_products"
+    description: "Read access to products, variants, and collections."
+    input_model: "GraphqlInput" # Reusing generic input for now, or could be specific
+    handler: "handle_graphql"
+  - name: "write_products"
+    description: "Create and update products, variants, and collections."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+
+  # --- Orders ---
+  - name: "read_orders"
+    description: "Read access to orders."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_orders"
+    description: "Create and update orders."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+    
+  # --- Customers ---
+  - name: "read_customers"
+    description: "Read access to customer details."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_customers"
+    description: "Create and update customer details."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+
+  # --- Inventory ---
+  - name: "read_inventory"
+    description: "Read inventory levels and items."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_inventory"
+    description: "Adjust and update inventory levels."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+
+  # --- Draft Orders ---
+  - name: "read_draft_orders"
+    description: "Read draft orders."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_draft_orders"
+    description: "Create and update draft orders."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+
+  # --- Marketing ---
+  - name: "read_marketing_events"
+    description: "Read marketing events."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_marketing_events"
+    description: "Create and update marketing events."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+
+  # --- Script Tags ---
+  - name: "read_script_tags"
+    description: "Read script tags."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_script_tags"
+    description: "Create and update script tags."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+
+  # --- Themes ---
+  - name: "read_themes"
+    description: "Read theme assets."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_themes"
+    description: "Update theme assets."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  # --- Online Store Content (Blogs, Articles, Pages) ---
+  - name: "read_content"
+    description: "Read blogs, articles, and pages."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  - name: "write_content"
+    description: "Create and update blogs, articles, and pages."
+    input_model: "GraphqlInput"
+    handler: "handle_graphql"
+  # note: This list mimics the standard OAuth scopes. 
+  # In a real usage, the AGENT constructs the GraphQL query.
+  # These scopes serve as 'Intent Gates' for the Agent.

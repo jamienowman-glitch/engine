@@ -1,0 +1,9 @@
+id: "aliexpress"
+name: "AliExpress Dropshipping MCP"
+summary: "Calculate freight and source products via AliExpress."
+scopes:
+  - name: "calculate_freight"
+    description: "Calculate shipping cost for a specific product to a destination."
+    input_model: "CalculateAliFreightInput"
+    handler: "calculate_freight"
+    firearms_required: false

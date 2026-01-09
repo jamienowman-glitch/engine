@@ -1,0 +1,9 @@
+id: "fashiongo"
+name: "FashionGo Sourcing MCP"
+summary: "Source women's apparel and trends via FashionGo."
+scopes:
+  - name: "search_apparel"
+    description: "Search FashionGo for apparel items."
+    input_model: "SearchFashionGoInput"
+    handler: "search_apparel"
+    firearms_required: false

@@ -1,0 +1,27 @@
+id: "klaviyo"
+name: "Klaviyo MCP"
+summary: "Access Klaviyo data (Accounts, Campaigns, Metrics) via official MCP server."
+scopes:
+  - name: "read_accounts"
+    description: "Read account details."
+    input_model: "GetAccountDetailsInput"
+    handler: "get_account_details"
+    firearms_required: false
+
+  - name: "read_campaigns"
+    description: "Read campaign performance/details."
+    input_model: "GetCampaignsInput"
+    handler: "get_campaigns"
+    firearms_required: false
+    
+  - name: "read_metrics"
+    description: "Read event metrics."
+    input_model: "GetMetricsInput"
+    handler: "get_metrics"
+    firearms_required: false
+
+  - name: "graphql_proxy"
+    description: "Execute raw tools dynamically discovered from server."
+    input_model: "RawToolInput"
+    handler: "call_raw_tool"
+    firearms_required: true

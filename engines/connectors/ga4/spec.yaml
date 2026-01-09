@@ -1,0 +1,9 @@
+id: "ga4"
+name: "Google Analytics 4 MCP"
+summary: "Fetch traffic and engagement reports from GA4 properties."
+scopes:
+  - name: "run_report"
+    description: "Run a report (dimensions & metrics)."
+    input_model: "RunGA4ReportInput"
+    handler: "run_report"
+    firearms_required: false

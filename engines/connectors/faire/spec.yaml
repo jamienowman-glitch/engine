@@ -1,0 +1,27 @@
+id: "faire"
+name: "Faire Wholesale MCP"
+summary: "Manage Wholesale Catalog and Orders on Faire."
+scopes:
+  - name: "list_products"
+    description: "List products in your wholesale catalog."
+    input_model: "ListFaireProductsInput"
+    handler: "list_products"
+    firearms_required: false
+
+  - name: "list_orders"
+    description: "List wholesale orders."
+    input_model: "ListFaireOrdersInput"
+    handler: "list_orders"
+    firearms_required: false
+
+  - name: "create_order"
+    description: "Create a manual wholesale order (Brand writing order for Retailer)."
+    input_model: "CreateFaireOrderInput"
+    handler: "create_order"
+    firearms_required: true
+
+  - name: "search_retailer_products"
+    description: "Search for products as a Retailer (Sourcing)."
+    input_model: "SearchFaireRetailerInput"
+    handler: "search_retailer_products"
+    firearms_required: false

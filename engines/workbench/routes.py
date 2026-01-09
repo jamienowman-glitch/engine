@@ -59,25 +59,33 @@ def finalize_asset(
     if not asset_id:
         error_response("validation.missing_id", "asset_id is required", 400)
 
-    # 2. Rehydration Logic (Stub)
-    # in real life, this would talk to Token Vault (W-05/06)
-    
-    is_pii = asset_id.startswith("pii_")
-    
-    if is_pii:
-        # Simulate successful rehydration
-        return {
-            "status": "finalized",
-            "asset_id": asset_id,
-            "url": f"https://vault.northstar.internal/rehydrated/{asset_id}",
-            "expires_in": 3600
-        }
+    # 2. Rehydration Logic (Real Implementation W-15)
+    # Check if asset_id looks like a PII token
+    if asset_id.startswith("<PII_") and asset_id.endswith(">"):
+        from engines.security.token_vault import get_token_vault
+        vault = get_token_vault()
+        
+        original_value = vault.retrieve(context.tenant_id, asset_id)
+        
+        if original_value:
+             return {
+                "status": "finalized",
+                "asset_id": asset_id,
+                "value": original_value, # Return the raw value for authorized finalization
+                "expires_in": 3600
+            }
+        else:
+             return {
+                 "status": "failed",
+                 "asset_id": asset_id,
+                 "message": "Token not found or expired."
+             }
     else:
         # Regular asset, maybe just pass through or 404 if invalid
         return {
             "status": "active",
             "asset_id": asset_id,
-            "message": "Asset was already active or handled."
+            "message": "Not a PII token, treated as active asset."
         }
 
 @router.put("/secrets/{secret_name}")

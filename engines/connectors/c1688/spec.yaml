@@ -1,0 +1,9 @@
+id: "1688"
+name: "1688.com Sourcing MCP"
+summary: "Query 1688.com for domestic China wholesale products via Apify."
+scopes:
+  - name: "search_products"
+    description: "Search/Scrape 1688 products via URL."
+    input_model: "Search1688Input"
+    handler: "search_products"
+    firearms_required: false

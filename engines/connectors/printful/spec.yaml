@@ -1,0 +1,60 @@
+id: "printful"
+name: "Printful MCP"
+summary: "Manage Print-on-Demand products, orders, mockups, and pricing via Printful API."
+scopes:
+  # --- Existing ---
+  - name: "read_products"
+    description: "List available product templates and sync products."
+    input_model: "ListProductsInput"
+    handler: "list_products"
+    firearms_required: false
+
+  - name: "read_orders"
+    description: "List recent orders."
+    input_model: "ListOrdersInput"
+    handler: "list_orders"
+    firearms_required: false
+    
+  - name: "create_order"
+    description: "Create a new draft order."
+    input_model: "CreateOrderInput"
+    handler: "create_order"
+    firearms_required: true
+
+  - name: "read_store"
+    description: "Get store information."
+    input_model: "GetStoreInput"
+    handler: "get_store_info"
+    firearms_required: false
+
+  # --- New Advanced Scopes ---
+  
+  - name: "create_product"
+    description: "Create a new Sync Product in the store."
+    input_model: "CreateProductInput"
+    handler: "create_product"
+    firearms_required: true
+    
+  - name: "add_variant"
+    description: "Add a variant (size/color + print file) to a product."
+    input_model: "AddVariantInput"
+    handler: "add_variant"
+    firearms_required: true
+    
+  - name: "update_variant"
+    description: "Update variant details, including RETAIL PRICE."
+    input_model: "UpdateVariantInput"
+    handler: "update_variant"
+    firearms_required: true
+
+  - name: "generate_mockups"
+    description: "Generate mockup images for a design and variant."
+    input_model: "GenerateMockupsInput"
+    handler: "generate_mockups"
+    firearms_required: true
+
+  - name: "get_catalog_item"
+    description: "Get details and production costs (COGS) for a blank product."
+    input_model: "GetCatalogItemInput"
+    handler: "get_catalog_item"
+    firearms_required: false

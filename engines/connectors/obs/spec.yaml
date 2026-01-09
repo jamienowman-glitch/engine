@@ -1,0 +1,21 @@
+id: "obs"
+name: "OBS MCP"
+summary: "Control OBS Studio (Scenes, Sources, Streaming) via official MCP server."
+scopes:
+  - name: "manage_scenes"
+    description: "List and switch scenes."
+    input_model: "ManageScenesInput"
+    handler: "get_scenes"
+    firearms_required: false
+
+  - name: "control_stream"
+    description: "Start/Stop streaming or recording."
+    input_model: "ControlStreamInput"
+    handler: "start_stream"
+    firearms_required: true
+
+  - name: "graphql_proxy"
+    description: "Execute raw tools dynamically discovered from server."
+    input_model: "RawToolInput"
+    handler: "call_raw_tool"
+    firearms_required: true

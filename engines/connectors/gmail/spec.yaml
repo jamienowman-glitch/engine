@@ -1,0 +1,21 @@
+id: "gmail"
+name: "Gmail Worker MCP"
+summary: "Gmail actions via Google API (Thread-aware)."
+scopes:
+  - name: "list_threads"
+    description: "List email threads from Inbox."
+    input_model: "ListGmailThreadsInput"
+    handler: "list_threads"
+    firearms_required: false
+
+  - name: "send_email"
+    description: "Send email immediately via Gmail API."
+    input_model: "SendGmailInput"
+    handler: "send_email"
+    firearms_required: true
+
+  - name: "create_draft"
+    description: "Create a draft in Gmail (Pending Approval)."
+    input_model: "SendGmailInput"
+    handler: "create_draft"
+    firearms_required: false

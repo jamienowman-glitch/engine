@@ -1,0 +1,15 @@
+id: "twitter"
+name: "X (Twitter) Connector"
+summary: "Post Tweets, Threads, and Media to X (formerly Twitter)."
+scopes:
+  - name: "post_tweet"
+    description: "Post a Tweet (Text, Media, Poll)."
+    input_model: "PostTweetInput"
+    handler: "post_tweet"
+    firearms_required: true
+
+  - name: "reply_tweet"
+    description: "Reply to a Tweet."
+    input_model: "ReplyTweetInput"
+    handler: "reply_tweet"
+    firearms_required: true

@@ -1,0 +1,27 @@
+id: "strava"
+name: "Strava MCP"
+summary: "Access Strava data (Activities, Athlete, Routes) via official MCP server."
+scopes:
+  - name: "read_activity"
+    description: "Read activity details and comments."
+    input_model: "ReadActivityInput"
+    handler: "get_activity"
+    firearms_required: false
+
+  - name: "read_athlete"
+    description: "Read athlete statistics and zones."
+    input_model: "ReadAthleteInput"
+    handler: "get_athlete_stats"
+    firearms_required: false
+    
+  - name: "create_activity"
+    description: "Create a manual activity."
+    input_model: "CreateActivityInput"
+    handler: "create_activity"
+    firearms_required: true
+
+  - name: "graphql_proxy"
+    description: "Execute raw tools dynamically discovered from server."
+    input_model: "RawToolInput"
+    handler: "call_raw_tool"
+    firearms_required: true

@@ -1,0 +1,15 @@
+id: "microsoft_365"
+name: "Microsoft 365 Email MCP"
+summary: "Corporate Email actions via Graph API."
+scopes:
+  - name: "send_email"
+    description: "Send email immediately via Graph API."
+    input_model: "SendMicrosoftEmailInput"
+    handler: "send_email"
+    firearms_required: true
+
+  - name: "create_draft"
+    description: "Create a draft message in Outlook (Pending Approval)."
+    input_model: "SendMicrosoftEmailInput"
+    handler: "create_draft"
+    firearms_required: false

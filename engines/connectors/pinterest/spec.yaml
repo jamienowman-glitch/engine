@@ -1,0 +1,27 @@
+id: "pinterest"
+name: "Pinterest Ads MCP"
+summary: "Manage Pinterest Advertising Campaigns."
+scopes:
+  - name: "create_campaign"
+    description: "Create a new advertising campaign."
+    input_model: "CreatePinterestCampaignInput"
+    handler: "create_campaign"
+    firearms_required: true
+
+  - name: "create_pin"
+    description: "Create a Pin (Image/Video) on a Board."
+    input_model: "CreatePinterestPinInput"
+    handler: "create_pin"
+    firearms_required: true
+
+  - name: "create_board"
+    description: "Create a new Board."
+    input_model: "CreatePinterestBoardInput"
+    handler: "create_board"
+    firearms_required: true
+
+  - name: "get_analytics"
+    description: "Get ad account or organic analytics."
+    input_model: "GetPinterestAnalyticsInput"
+    handler: "get_analytics"
+    firearms_required: false

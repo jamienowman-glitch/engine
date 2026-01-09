@@ -13,3 +13,4 @@ torch>=2.3.0
 torchaudio>=2.3.0
 boto3>=1.34.0
 stripe>=7.12.0
+mcp>=1.0.0

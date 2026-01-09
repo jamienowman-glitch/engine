@@ -94,7 +94,20 @@ class LoaderService:
             module = importlib.util.module_from_spec(spec_obj)
             spec_obj.loader.exec_module(module)
             
-            # Create Tool
+            # --- Dynamic Tool Loading (Phase 5) ---
+            # Check if module exposes a loader hooks
+            dynamic_loader_fn = getattr(module, "load_dynamic_tools", None)
+            if dynamic_loader_fn and callable(dynamic_loader_fn):
+                try:
+                    dynamic_tools = dynamic_loader_fn()
+                    for t in dynamic_tools:
+                        if isinstance(t, Tool):
+                            self._inventory.register_tool(t)
+                except Exception as e:
+                    print(f"Error loading dynamic tools from {path}: {e}")
+            
+            # --- Static Spec Loading ---
+            # Create Tool (Default from spec.yaml)
             tool_id = spec.get("id")
             if not tool_id:
                 return

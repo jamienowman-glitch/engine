@@ -1,0 +1,596 @@
+# Shopify Tool Templates Registry
+# Defines granular tools that map to generic GraphQL mutations.
+
+# ==========================================
+# 1. CONTENT & SEO
+# ==========================================
+
+- name: "shopify_create_blog_post"
+  description: "Create a new blog post/article with SEO and Feature Image."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      blog_id: { type: "string" }
+      title: { type: "string" }
+      body_html: { type: "string" }
+      author_name: { type: "string" }
+      tags: { type: "array", items: { type: "string" } }
+      image_url: { type: "string" }
+      image_alt: { type: "string" }
+      seo_title: { type: "string" }
+      seo_description: { type: "string" }
+    required: ["blog_id", "title"]
+  graphql_template: |
+    mutation CreateArticle($blogId: ID!, $article: ArticleCreateInput!) {
+      articleCreate(blogId: $blogId, article: $article) {
+        article { id handle url }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "blogId": args.get("blog_id"),
+      "article": {
+        "title": args.get("title"),
+        "bodyHtml": args.get("body_html", ""),
+        "author": { "name": args.get("author_name", "Staff") },
+        "tags": args.get("tags", []),
+        "image": { "src": args.get("image_url"), "altText": args.get("image_alt") } if args.get("image_url") else None,
+        "seo": { "title": args.get("seo_title"), "description": args.get("seo_description") } if args.get("seo_title") else None,
+        "isPublished": True
+      }
+    }
+
+- name: "shopify_update_blog_post"
+  description: "Update an existing blog post."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      article_id: { type: "string" }
+      title: { type: "string" }
+      body_html: { type: "string" }
+      is_published: { type: "boolean" }
+    required: ["article_id"]
+  graphql_template: |
+    mutation UpdateArticle($articleId: ID!, $article: ArticleUpdateInput!) {
+      articleUpdate(id: $articleId, article: $article) {
+        article { id url }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "articleId": args.get("article_id"),
+      "article": {
+        "title": args.get("title"),
+        "bodyHtml": args.get("body_html"),
+        "isPublished": args.get("is_published")
+      }
+    }
+
+- name: "shopify_delete_blog_post"
+  description: "Delete an article."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      article_id: { type: "string" }
+    required: ["article_id"]
+  graphql_template: |
+    mutation DeleteArticle($id: ID!) {
+      articleDelete(id: $id) {
+        deletedId
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    { "id": args.get("article_id") }
+
+- name: "shopify_create_page"
+  description: "Create a standard page (e.g. About Us)."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      title: { type: "string" }
+      body_html: { type: "string" }
+      is_published: { type: "boolean" }
+    required: ["title"]
+  graphql_template: |
+    mutation CreatePage($page: PageCreateInput!) {
+      pageCreate(page: $page) {
+        page { id handle }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "page": {
+        "title": args.get("title"),
+        "body": args.get("body_html", ""),
+        "isPublished": args.get("is_published", True)
+      }
+    }
+
+- name: "shopify_create_redirect"
+  description: "Create a URL redirect."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      path: { type: "string", description: "Old path" }
+      target: { type: "string", description: "New path" }
+    required: ["path", "target"]
+  graphql_template: |
+    mutation UrlRedirectCreate($urlRedirect: UrlRedirectInput!) {
+      urlRedirectCreate(urlRedirect: $urlRedirect) {
+        urlRedirect { id path target }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    { "urlRedirect": { "path": args.get("path"), "target": args.get("target") } }
+
+- name: "shopify_set_metafields"
+  description: "Set metafields on a resource (Product, Order, Customer)."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      owner_id: { type: "string", description: "ID of resource (e.g. Product ID)" }
+      namespace: { type: "string", description: "Container (e.g. 'custom')" }
+      key: { type: "string" }
+      value: { type: "string" }
+      type: { type: "string", description: "single_line_text_field, number_integer, etc." }
+    required: ["owner_id", "namespace", "key", "value", "type"]
+  graphql_template: |
+    mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { id key value }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "metafields": [{
+        "ownerId": args.get("owner_id"),
+        "namespace": args.get("namespace"),
+        "key": args.get("key"),
+        "value": str(args.get("value")),
+        "type": args.get("type")
+      }]
+    }
+
+# ==========================================
+# 2. PRODUCTS & INVENTORY
+# ==========================================
+
+- name: "shopify_create_product"
+  description: "Create a product with options, SEO, and Media."
+  scope_required: "write_products"
+  input_schema:
+    type: "object"
+    properties:
+      title: { type: "string" }
+      description_html: { type: "string" }
+      vendor: { type: "string" }
+      product_type: { type: "string" }
+      seo_title: { type: "string" }
+      seo_description: { type: "string" }
+      media_urls: { type: "array", items: { type: "string" } }
+    required: ["title"]
+  graphql_template: |
+    mutation CreateProduct($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
+      productCreate(product: $product, media: $media) {
+        product { id title handle }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "product": {
+        "title": args.get("title"),
+        "descriptionHtml": args.get("description_html", ""),
+        "vendor": args.get("vendor"),
+        "productType": args.get("product_type"),
+        "status": "ACTIVE",
+        "seo": { "title": args.get("seo_title"), "description": args.get("seo_description") } if args.get("seo_title") else None
+      },
+      "media": [ { "originalSource": url, "mediaContentType": "IMAGE" } for url in args.get("media_urls", []) ]
+    }
+
+- name: "shopify_archive_product"
+  description: "Archive a product (set status to ARCHIVED)."
+  scope_required: "write_products"
+  input_schema:
+    type: "object"
+    properties:
+      product_id: { type: "string" }
+    required: ["product_id"]
+  graphql_template: |
+    mutation ArchiveProduct($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { id status }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    { "input": { "id": args.get("product_id"), "status": "ARCHIVED" } }
+
+- name: "shopify_create_smart_collection"
+  description: "Create a rule-based smart collection."
+  scope_required: "write_products"
+  input_schema:
+    type: "object"
+    properties:
+      title: { type: "string" }
+      rule_column: { type: "string", description: "title, type, vendor, variant_price, etc." }
+      rule_relation: { type: "string", description: "equals, not_equals, greater_than, etc." }
+      rule_condition: { type: "string", description: "The value to match (e.g. 'T-Shirt')" }
+    required: ["title", "rule_column", "rule_relation", "rule_condition"]
+  graphql_template: |
+    mutation CreateSmartCollection($input: CollectionInput!) {
+      collectionCreate(input: $input) {
+        collection { id }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "input": {
+        "title": args.get("title"),
+        "ruleSet": {
+          "appliedDisjunctively": False,
+          "rules": [{
+            "column": args.get("rule_column").upper(),
+            "relation": args.get("rule_relation").upper(),
+            "condition": args.get("rule_condition")
+          }]
+        }
+      }
+    }
+
+- name: "shopify_add_products_to_collection"
+  description: "Add products to a manual collection."
+  scope_required: "write_products"
+  input_schema:
+    type: "object"
+    properties:
+      collection_id: { type: "string" }
+      product_ids: { type: "array", items: { type: "string" } }
+    required: ["collection_id", "product_ids"]
+  graphql_template: |
+    mutation CollectionAddProducts($id: ID!, $productIds: [ID!]!) {
+      collectionAddProducts(id: $id, productIds: $productIds) {
+        collection { id }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    { "id": args.get("collection_id"), "productIds": args.get("product_ids") }
+
+- name: "shopify_set_inventory"
+  description: "Set absolute inventory quantity."
+  scope_required: "write_inventory"
+  input_schema:
+    type: "object"
+    properties:
+      inventory_item_id: { type: "string" }
+      location_id: { type: "string" }
+      quantity: { type: "integer" }
+    required: ["inventory_item_id", "location_id", "quantity"]
+  graphql_template: |
+    mutation InventorySet($input: InventorySetQuantitiesInput!) {
+      inventorySetQuantities(input: $input) {
+        inventoryAdjustmentGroup { reason }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "input": {
+        "name": "available",
+        "reason": "correction",
+        "ignoreCompareQuantity": True,
+        "quantities": [{ "inventoryItemId": args.get("inventory_item_id"), "locationId": args.get("location_id"), "quantity": args.get("quantity") }]
+      }
+    }
+
+# ==========================================
+# 3. ORDERS & CUSTOMERS
+# ==========================================
+
+- name: "shopify_create_customer"
+  description: "Create a new customer."
+  scope_required: "write_customers"
+  input_schema:
+    type: "object"
+    properties:
+      first_name: { type: "string" }
+      last_name: { type: "string" }
+      email: { type: "string" }
+    required: ["first_name", "last_name", "email"]
+  graphql_template: |
+    mutation CreateCustomer($input: CustomerInput!) {
+      customerCreate(input: $input) {
+        customer { id }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "input": {
+        "firstName": args.get("first_name"),
+        "lastName": args.get("last_name"),
+        "email": args.get("email")
+      }
+    }
+
+- name: "shopify_update_customer"
+  description: "Update customer details/tags."
+  scope_required: "write_customers"
+  input_schema:
+    type: "object"
+    properties:
+      customer_id: { type: "string" }
+      tags: { type: "array", items: { type: "string" } }
+      note: { type: "string" }
+    required: ["customer_id"]
+  graphql_template: |
+    mutation CustomerUpdate($input: CustomerInput!) {
+      customerUpdate(input: $input) {
+        customer { id }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    { "input": { "id": args.get("customer_id"), "tags": args.get("tags"), "note": args.get("note") } }
+
+- name: "shopify_create_draft_order"
+  description: "Create a draft order."
+  scope_required: "write_draft_orders"
+  input_schema:
+    type: "object"
+    properties:
+      customer_id: { type: "string" }
+      variant_id: { type: "string" }
+      quantity: { type: "integer" }
+    required: ["variant_id", "quantity"]
+  graphql_template: |
+    mutation DraftOrderCreate($input: DraftOrderInput!) {
+      draftOrderCreate(input: $input) {
+        draftOrder { id invoiceUrl }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "input": {
+        "customerId": args.get("customer_id"),
+        "lineItems": [{ "variantId": args.get("variant_id"), "quantity": args.get("quantity") }]
+      }
+    }
+
+- name: "shopify_order_mark_paid"
+  description: "Mark an order as paid."
+  scope_required: "write_orders"
+  input_schema:
+    type: "object"
+    properties:
+      order_id: { type: "string" }
+    required: ["order_id"]
+  graphql_template: |
+    mutation OrderMarkAsPaid($input: OrderMarkAsPaidInput!) {
+      orderMarkAsPaid(input: $input) {
+        order { id displayFinancialStatus }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    { "input": { "id": args.get("order_id") } }
+
+- name: "shopify_order_cancel"
+  description: "Cancel an order."
+  scope_required: "write_orders"
+  input_schema:
+    type: "object"
+    properties:
+      order_id: { type: "string" }
+      refund: { type: "boolean" }
+      restock: { type: "boolean" }
+    required: ["order_id"]
+  graphql_template: |
+    mutation OrderCancel($orderId: ID!) {
+      orderCancel(orderId: $orderId) {
+        job { id }
+        userErrors { field message }
+      }
+    }
+  # Note: Advanced refund/restock logic is complex, defaulted here.
+  variables_transform: |
+    { "orderId": args.get("order_id") }
+
+- name: "shopify_fulfill_order"
+  description: "Create a fulfillment for an order."
+  scope_required: "write_merchant_managed_fulfillment_orders"
+  input_schema:
+    type: "object"
+    properties:
+      fulfillment_order_id: { type: "string" }
+      tracking_number: { type: "string" }
+    required: ["fulfillment_order_id"]
+  graphql_template: |
+    mutation FulfillmentCreate($fulfillment: FulfillmentV2Input!) {
+      fulfillmentCreateV2(fulfillment: $fulfillment) {
+        fulfillment { id status }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "fulfillment": {
+        "lineItemsByFulfillmentOrder": [{ "fulfillmentOrderId": args.get("fulfillment_order_id") }],
+        "trackingInfo": { "number": args.get("tracking_number") } if args.get("tracking_number") else None
+      }
+    }
+
+# ==========================================
+# 4. MARKETING & STORE
+# ==========================================
+
+- name: "shopify_create_discount_code"
+  description: "Create a basic percentage discount code."
+  scope_required: "write_discounts"
+  input_schema:
+    type: "object"
+    properties:
+      code: { type: "string" }
+      title: { type: "string" }
+      percentage: { type: "number", description: "0.1 = 10%" }
+    required: ["code", "title", "percentage"]
+  graphql_template: |
+    mutation DiscountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
+      discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+        discountCodeBasic { codes(first: 1) { nodes { code } } }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "basicCodeDiscount": {
+        "title": args.get("title"),
+        "code": args.get("code"),
+        "startsAt": "2024-01-01T00:00:00Z",
+        "customerSelection": { "all": True },
+        "customerGets": { "value": { "percentage": args.get("percentage") }, "items": { "all": True } }
+      }
+    }
+
+- name: "shopify_create_bxgy_discount"
+  description: "Create Buy X Get Y discount."
+  scope_required: "write_discounts"
+  input_schema:
+    type: "object"
+    properties:
+      title: { type: "string" }
+      code: { type: "string" }
+      buy_quantity: { type: "integer" }
+      get_quantity: { type: "integer" }
+    required: ["title", "code", "buy_quantity", "get_quantity"]
+  graphql_template: |
+    mutation DiscountBxgyCreate($bxgyDiscount: DiscountCodeBxgyInput!) {
+      discountCodeBxgyCreate(bxgyDiscount: $bxgyDiscount) {
+        discountCodeBxgy { id }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "bxgyDiscount": {
+        "title": args.get("title"),
+        "code": args.get("code"),
+        "startsAt": "2024-01-01T00:00:00Z",
+        "customerSelection": { "all": True },
+        "customerBuys": { "value": { "quantity": args.get("buy_quantity") }, "items": { "all": True } },
+        "customerGets": { "value": { "quantity": args.get("get_quantity") }, "items": { "all": True } }
+      }
+    }
+
+- name: "shopify_issue_gift_card"
+  description: "Issue a gift card to a customer."
+  scope_required: "write_gift_cards"
+  input_schema:
+    type: "object"
+    properties:
+      customer_id: { type: "string" }
+      amount: { type: "number" }
+      code: { type: "string", description: "Optional custom code" }
+    required: ["amount"]
+  graphql_template: |
+    mutation GiftCardCreate($input: GiftCardCreateInput!) {
+      giftCardCreate(input: $input) {
+        giftCard { id code }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "input": {
+        "initialValue": { "amount": args.get("amount"), "currencyCode": "USD" },
+        "customerId": args.get("customer_id"),
+        "code": args.get("code")
+      }
+    }
+
+- name: "shopify_update_shop_policy"
+  description: "Update Refund, Privacy, or Terms policy."
+  scope_required: "write_content"
+  input_schema:
+    type: "object"
+    properties:
+      refund_policy: { type: "string" }
+      privacy_policy: { type: "string" }
+      terms_of_service: { type: "string" }
+    required: []
+  graphql_template: |
+    mutation ShopPolicyUpdate($shopPolicy: ShopPolicyInput!) {
+      shopPolicyUpdate(shopPolicy: $shopPolicy) {
+        shopPolicy { body }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "shopPolicy": {
+        "refundPolicy": args.get("refund_policy"),
+        "privacyPolicy": args.get("privacy_policy"),
+        "termsOfService": args.get("terms_of_service")
+      }
+    }
+
+- name: "shopify_update_theme_asset"
+  description: "Update a liquid file or asset in a theme."
+  scope_required: "write_themes"
+  input_schema:
+    type: "object"
+    properties:
+      theme_id: { type: "string" }
+      key: { type: "string" }
+      value: { type: "string" }
+    required: ["theme_id", "key", "value"]
+  graphql_template: |
+    mutation ThemeAssetUpdate($themeId: ID!, $assets: [ThemeAssetInput!]!) {
+      themeAssetsUpdate(themeId: $themeId, assets: $assets) {
+        assets { key publicUrl }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "themeId": args.get("theme_id"),
+      "assets": [{ "key": args.get("key"), "value": args.get("value") }]
+    }
+
+- name: "shopify_create_webhook"
+  description: "Create a webhook subscription."
+  scope_required: "write_checkouts"
+  input_schema:
+    type: "object"
+    properties:
+      topic: { type: "string" }
+      callback_url: { type: "string" }
+    required: ["topic", "callback_url"]
+  graphql_template: |
+    mutation WebhookCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+      webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+        webhookSubscription { id }
+        userErrors { field message }
+      }
+    }
+  variables_transform: |
+    {
+      "topic": args.get("topic"),
+      "webhookSubscription": { "callbackUrl": args.get("callback_url"), "format": "JSON" }
+    }

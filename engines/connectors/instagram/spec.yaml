@@ -1,0 +1,15 @@
+id: "instagram"
+name: "Instagram Graph MCP"
+summary: "Publish Feed, Reels, and Stories to Instagram Business."
+scopes:
+  - name: "publish_media"
+    description: "Publish Photo, Video, Reel, or Story."
+    input_model: "PublishInstagramMediaInput"
+    handler: "publish_media"
+    firearms_required: true
+
+  - name: "get_insights"
+    description: "Get Media or User insights."
+    input_model: "GetInstagramInsightsInput"
+    handler: "get_insights"
+    firearms_required: false

@@ -1,0 +1,27 @@
+id: "meta"
+name: "Meta Ads MCP"
+summary: "Manage Facebook and Instagram Advertising Campaigns."
+scopes:
+  - name: "create_campaign"
+    description: "Create a new advertising campaign."
+    input_model: "CreateMetaCampaignInput"
+    handler: "create_campaign"
+    firearms_required: true
+
+  - name: "create_ad_set"
+    description: "Create an ad set (targeting, budget, schedule)."
+    input_model: "CreateMetaAdSetInput"
+    handler: "create_ad_set"
+    firearms_required: true
+    
+  - name: "create_ad"
+    description: "Create an ad (creative) within an ad set."
+    input_model: "CreateMetaAdInput"
+    handler: "create_ad"
+    firearms_required: true
+
+  - name: "get_insights"
+    description: "Get performance metrics (Spend, CPM, CPR)."
+    input_model: "GetMetaInsightsInput"
+    handler: "get_insights"
+    firearms_required: false

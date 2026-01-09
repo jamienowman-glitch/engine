@@ -1,0 +1,27 @@
+id: "google_ads"
+name: "Google Ads MCP"
+summary: "Query Google Ads data via GAQL and access documentation."
+scopes:
+  - name: "list_accessible_accounts"
+    description: "List accessible Google Ads Customer IDs."
+    input_model: "ListAccountsInput"
+    handler: "list_accessible_accounts"
+    firearms_required: false
+
+  - name: "execute_gaql"
+    description: "Execute Google Ads Query Language (GAQL) queries."
+    input_model: "ExecuteGAQLInput"
+    handler: "execute_gaql"
+    firearms_required: true
+
+  - name: "read_documentation"
+    description: "Read Google Ads API and GAQL documentation."
+    input_model: "ReadDocsInput"
+    handler: "read_docs"
+    firearms_required: false
+
+  - name: "graphql_proxy"
+    description: "Execute raw tools dynamically discovered from server."
+    input_model: "RawToolInput"
+    handler: "call_raw_tool"
+    firearms_required: true

@@ -1,0 +1,15 @@
+id: "snapchat"
+name: "Snapchat Public Profile MCP"
+summary: "Post to Snapchat Public Stories and Spotlight."
+scopes:
+  - name: "post_story"
+    description: "Post media to Public Story."
+    input_model: "PostSnapchatStoryInput"
+    handler: "post_story"
+    firearms_required: true
+
+  - name: "post_spotlight"
+    description: "Post video to Spotlight (Public Feed)."
+    input_model: "PostSnapchatSpotlightInput"
+    handler: "post_spotlight"
+    firearms_required: true

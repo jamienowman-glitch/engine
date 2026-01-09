@@ -1,0 +1,15 @@
+id: "linkedin"
+name: "LinkedIn Professional MCP"
+summary: "Manage LinkedIn Profile connection and updates."
+scopes:
+  - name: "share_update"
+    description: "Post a text/link update to LinkedIn Feed."
+    input_model: "ShareLinkedInUpdateInput"
+    handler: "share_update"
+    firearms_required: true
+
+  - name: "get_profile"
+    description: "Get current user profile information."
+    input_model: "GetLinkedInProfileInput"
+    handler: "get_profile"
+    firearms_required: false

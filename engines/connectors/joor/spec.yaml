@@ -1,0 +1,15 @@
+id: "joor"
+name: "JOOR Sourcing MCP"
+summary: "Access luxury wholesale designers and line sheets."
+scopes:
+  - name: "list_designers"
+    description: "List available luxury designers."
+    input_model: "ListJoorDesignersInput"
+    handler: "list_designers"
+    firearms_required: false
+
+  - name: "get_linesheet"
+    description: "Get a specific designer's line sheet."
+    input_model: "GetJoorLinesheetInput"
+    handler: "get_linesheet"
+    firearms_required: false

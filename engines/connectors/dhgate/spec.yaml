@@ -1,0 +1,15 @@
+id: "dhgate"
+name: "DHgate Sourcing MCP"
+summary: "Query wholesale cross-border products via DHgate Official API."
+scopes:
+  - name: "search_products"
+    description: "Search DHgate for items (keyword, category, price)."
+    input_model: "SearchDHgateInput"
+    handler: "search_products"
+    firearms_required: false
+
+  - name: "get_product"
+    description: "Get detailed info and MOQ for a specific item."
+    input_model: "GetDHgateProductInput"
+    handler: "get_product"
+    firearms_required: false

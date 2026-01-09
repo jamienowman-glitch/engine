@@ -1,0 +1,21 @@
+id: "email_universal"
+name: "Universal Email MCP"
+summary: "Standard SMTP/IMAP Connector for any Email Provider."
+scopes:
+  - name: "read_inbox"
+    description: "Fetch generic unread emails from Inbox."
+    input_model: "ReadEmailInput"
+    handler: "read_inbox"
+    firearms_required: false
+
+  - name: "send_email"
+    description: "Send an email immediately via SMTP."
+    input_model: "SendEmailInput"
+    handler: "send_email"
+    firearms_required: true
+
+  - name: "create_draft"
+    description: "Save an email to Drafts folder via IMAP (No Send)."
+    input_model: "SendEmailInput"
+    handler: "create_draft"
+    firearms_required: false

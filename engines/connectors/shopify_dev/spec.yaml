@@ -1,0 +1,15 @@
+id: "shopify-dev-mcp"
+name: "Shopify Dev MCP"
+summary: "Access Shopify documentation and validation tools via official MCP server."
+scopes:
+  - name: "search_docs_chunks"
+    description: "Search across all shopify.dev documentation."
+    input_model: "SearchDocsInput"
+    handler: "search_docs_chunks"
+    firearms_required: false
+
+  - name: "validate_liquid"
+    description: "Validate Liquid code blocks using Theme Check."
+    input_model: "ValidateLiquidInput"
+    handler: "validate_theme_codeblocks"
+    firearms_required: false

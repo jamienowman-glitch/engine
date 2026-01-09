@@ -1,0 +1,21 @@
+id: "prodigi"
+name: "Prodigi MCP"
+summary: "Global Print-on-Demand fulfillment via Prodigi API v4."
+scopes:
+  - name: "get_quote"
+    description: "Get a cost quote for a potential order."
+    input_model: "GetQuoteInput"
+    handler: "get_quote"
+    firearms_required: false
+
+  - name: "create_order"
+    description: "Create a new print order."
+    input_model: "CreateProdigiOrderInput"
+    handler: "create_order"
+    firearms_required: true
+
+  - name: "get_order"
+    description: "Get details and status of an order."
+    input_model: "GetProdigiOrderInput"
+    handler: "get_order"
+    firearms_required: false

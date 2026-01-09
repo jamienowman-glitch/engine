@@ -1,0 +1,9 @@
+id: "tundra"
+name: "Tundra Sourcing MCP"
+summary: "Source fee-free wholesale products via Tundra."
+scopes:
+  - name: "search_wholesale"
+    description: "Search Tundra wholesale catalog."
+    input_model: "SearchTundraInput"
+    handler: "search_wholesale"
+    firearms_required: false

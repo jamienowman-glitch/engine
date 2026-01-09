@@ -1,0 +1,15 @@
+id: "twitch"
+name: "Twitch Stream Manager MCP"
+summary: "Manage Twitch Stream: Connect, Clip, and Update Info."
+scopes:
+  - name: "create_clip"
+    description: "Create a Clip from the live stream."
+    input_model: "CreateTwitchClipInput"
+    handler: "create_clip"
+    firearms_required: true
+
+  - name: "update_stream_info"
+    description: "Update Stream Title, Game, and Tags."
+    input_model: "UpdateTwitchStreamInfoInput"
+    handler: "update_stream_info"
+    firearms_required: true

@@ -1,0 +1,15 @@
+id: "adzuna"
+name: "Adzuna Job Search MCP"
+summary: "Search for Jobs and Salary Data via Adzuna API."
+scopes:
+  - name: "search_jobs"
+    description: "Search for job vacancies."
+    input_model: "SearchAdzunaJobsInput"
+    handler: "search_jobs"
+    firearms_required: false
+
+  - name: "get_salary_stats"
+    description: "Get salary histogram and statistics."
+    input_model: "GetAdzunaSalaryStatsInput"
+    handler: "get_salary_stats"
+    firearms_required: false

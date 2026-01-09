@@ -1,0 +1,27 @@
+id: "youtube"
+name: "YouTube Creator MCP"
+summary: "Manage YouTube Channel: Upload Video/Shorts, Playlists, and Analytics."
+scopes:
+  - name: "upload_video"
+    description: "Upload a video (or Short) from a URL."
+    input_model: "UploadYouTubeVideoInput"
+    handler: "upload_video"
+    firearms_required: true
+
+  - name: "set_thumbnail"
+    description: "Set a custom thumbnail for a video."
+    input_model: "SetYouTubeThumbnailInput"
+    handler: "set_thumbnail"
+    firearms_required: true
+
+  - name: "create_playlist"
+    description: "Create a new playlist."
+    input_model: "CreateYouTubePlaylistInput"
+    handler: "create_playlist"
+    firearms_required: false
+
+  - name: "get_analytics"
+    description: "Query channel or video analytics."
+    input_model: "GetYouTubeAnalyticsInput"
+    handler: "get_analytics"
+    firearms_required: false

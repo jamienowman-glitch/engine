@@ -1,0 +1,15 @@
+id: "tiktok"
+name: "TikTok Creator MCP"
+summary: "Post Videos and analyze performance on TikTok."
+scopes:
+  - name: "post_video"
+    description: "Direct Post a video to TikTok."
+    input_model: "PostTikTokVideoInput"
+    handler: "post_video"
+    firearms_required: true
+
+  - name: "get_analytics"
+    description: "Get profile or video metrics."
+    input_model: "GetTikTokAnalyticsInput"
+    handler: "get_analytics"
+    firearms_required: false
