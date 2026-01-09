@@ -7,6 +7,27 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+# TASK-E-00: Lock SpaceKey
+class Scope(str, Enum):
+    TENANT = "tenant"
+    GLOBAL = "global"
+
+class SpaceKey(BaseModel):
+    """
+    SpaceKey (storage + routing identity).
+    A 'space' is addressed by:
+    SpaceKey = {scope, tenant_id, env/mode, project_id, surface_id, space_id}
+    """
+    scope: Scope
+    tenant_id: str
+    env: str  # or mode
+    project_id: str
+    surface_id: str
+    space_id: str
+
+    def __str__(self) -> str:
+        """Return a string representation suitable for logging or paths."""
+        return f"{self.scope}:{self.tenant_id}:{self.env}:{self.project_id}:{self.surface_id}:{self.space_id}"
 
 class NexusKind(str, Enum):
     data = "data"
