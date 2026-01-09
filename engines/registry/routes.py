@@ -101,7 +101,7 @@ def get_atoms(
 @router.get("/specs", response_model=RegistrySpecsPayload)
 def get_registry_specs(
     request: Request,
-    kind: str = Query(..., regex="^(atom|component|lens)$"),
+    kind: str = Query(..., regex="^(atom|component|lens|graphlens|canvas)$"),
     cursor: Optional[str] = Query(None),
     context: RequestContext = Depends(get_request_context),
     auth: AuthContext = Depends(_resolve_auth_context),
@@ -133,3 +133,35 @@ def get_registry_spec(
             details={"spec_id": spec_id},
         )
     return _respond_with_etag(spec, request)
+
+
+@router.get("/graphlenses", response_model=RegistrySpecsPayload)
+def get_graphlenses(
+    request: Request,
+    cursor: Optional[str] = Query(None),
+    context: RequestContext = Depends(get_request_context),
+    auth: AuthContext = Depends(_resolve_auth_context),
+    service: ComponentRegistryService = Depends(get_component_registry_service),
+) -> Response:
+    """List graphlenses (typed alias for /specs?kind=graphlens)."""
+    _require_membership(auth, context)
+    payload = service.list_specs(context, kind="graphlens", cursor=cursor)
+    etag = _compute_etag(payload, exclude={"etag"})
+    payload_with_etag = payload.model_copy(update={"etag": etag})
+    return _respond_with_etag(payload_with_etag, request, exclude={"etag"})
+
+
+@router.get("/canvases", response_model=RegistrySpecsPayload)
+def get_canvases(
+    request: Request,
+    cursor: Optional[str] = Query(None),
+    context: RequestContext = Depends(get_request_context),
+    auth: AuthContext = Depends(_resolve_auth_context),
+    service: ComponentRegistryService = Depends(get_component_registry_service),
+) -> Response:
+    """List canvases (typed alias for /specs?kind=canvas)."""
+    _require_membership(auth, context)
+    payload = service.list_specs(context, kind="canvas", cursor=cursor)
+    etag = _compute_etag(payload, exclude={"etag"})
+    payload_with_etag = payload.model_copy(update={"etag": etag})
+    return _respond_with_etag(payload_with_etag, request, exclude={"etag"})
